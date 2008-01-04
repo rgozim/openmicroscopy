@@ -1,196 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
-<project name="main" default="usage" basedir="."  xmlns:ivy="antlib:org.apache.ivy.ant">
-<!--
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#
-# $Id$
-# 
-# Copyright 2006 University of Dundee. All rights reserved.
-# Use is subject to license terms supplied in LICENSE.txt
-# 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+<project name="model" default="install" basedir=".">
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Written by:  Josh Moore <josh.moore@gmx.de>
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    
-  DOCUMENTATION:
-  =================================================
+    <property name="import.dir" value="${basedir}/../antlib/resources"/>
+    <import file="${import.dir}/global.xml"/>
+    <import file="${import.dir}/dependencies.xml"/>
+    <import file="${import.dir}/lifecycle.xml"/>
+    <import file="${import.dir}/hibernate.xml"/>
 
-  To use this script you need only have downloaded
-  the source code (either from subversion or as
-  distribution). The build system can be used by 
-  calling:
+    <!-- Class that will be called via "java -jar" on this artifact -->
+    <property name="main.class" value="ome.util.tasks.Run"/>
 
-    java omero <arguments>
+	
+	<!-- Lifecycle Overrides -->
+	<target name="generate" depends="prepare,dsl,lifecycle.generate" unless="generate.skip"/>
+	<!-- TODO generate.skip not working -->
 
-  from within the OMERO_HOME directory (this is 
-  what you checked out of subversion and where this
-  file is located).
-
--->
-
-	<property name="import.dir" value="${basedir}/components/antlib/resources"/>
-	<import file="${import.dir}/global.xml"/>
-	<import file="${import.dir}/setup.xml"/>
-	<import file="${import.dir}/dependencies.xml"/>
-	<import file="${import.dir}/multiproject.xml"/>
-
-	<target name="help" depends="usage"/>
-	<target name="usage"
-		description="Usage information">
-		<concat>
-			<filelist dir="${import.dir}" files="usage-ant.txt"/>
-		</concat>
-	</target>
-	<target name="all-help"
-		description="Print all help targets">
-		<echo>
-		  help                  -- Simple build help
-		  help-deps             -- Help on dependency management
-		  help-life             -- Help on lifecycle targets (compile, test, ...)
-		  help-setup            -- Help on setup targets
-		  help-server           -- Help on server management
-		  help-release          -- Help on release process
-		</echo>
+    <!-- = = = = = = = = = = = = = = = = =
+          home grown code-gen          
+         = = = = = = = = = = = = = = = = = -->
+	
+	<target name="dsl-init">
+		<taskdef classname="ome.dsl.DSLTask" classpathref="omero.classpath" name="dsl"/>
+		<is-done name="dsl" srcdir="${resrc.dir}" includes="${dsl.pat}"/>
+		<!-- TODO: use dependset -->
 	</target>
 	
-
-<!-- 	===============================================
-		BUILD
-==================================================  -->
-	<target name="fullbuild" depends="check-system,clean,build,reload-db"
-		description="Extensive build which checks and cleans the build environment, builds, and setups the database"/>
-
-	<target name="build" depends="install"
-		description="A simple build that will install all artifacts to ${omero.repo.local}"/>
-
-	<target name="deploy" depends="check-system">
-		<iterate buildpathref="app.buildpath" target="deploy"/>
-	</target>
-
-	<target name="fulldeploy" depends="fullbuild,deploy"/>
-
-	<target name="clean" depends="multiproject"
-		description="Lifecycle target: calls 'clean' on all components">
-		<iterate target="clean"/>
-		<delete dir="${dist.dir}"/>
-		<delete dir="${lib.dir}/cache"/>
-	</target>
-
-	<target name="withtools"
-		description="Calls build and dist on the tools component, copying over dist/">
-		<iterate buildpathref="tools.buildpath" target="build"/>
-		<iterate buildpathref="tools.buildpath" target="dist"/>
-	</target>
-
-	<target name="cleantools"
-		description="Calls cleans on the tools component and removes tools/target">
-		<iterate buildpathref="tools.buildpath" target="clean"/>
-	</target>
-
-	<target name="zip">
-		<zip destfile="${product.name}-${omero.version}.zip">
-			<zipfileset dir="${dist.dir}" prefix="${product.name}-${omero.version}"/>
-		</zip>
-	</target>
-
-	<target name="tar">
-		<tar destfile="${product.name}-${omero.version}.tar.bz2" compress="bzip2">
-			<zipfileset dir="${dist.dir}" prefix="${product.name}-${omero.version}"/>
-		</tar>
-	</target>
-
-<!-- 	===============================================
-		Mgmt Targets
-	==================================================  -->
-
-	<target name="reload-db">
-		<iterate buildpathref="server.buildpath" target="reload-db"/>
-	</target>
-
-	<target name="addgroup">
-		<iterate buildpathref="client.buildpath" target="addgroup"/>
-	</target>
-
-	<target name="adduser">
-		<iterate buildpathref="client.buildpath" target="adduser"/>
-	</target>
-
-	<target name="dist" depends="multiproject,_dist">
-		<iterate target="dist"/>
-	</target>
-
-	<target name="_dist" depends="deps-configure">
-		<mkdir dir="${dist.dir}"/>
-		<!-- 
-			etc/
-			========================================================
-			Copies example property files to the ${dist.dir}
-			for use by the user to configure the install.
-		-->
-		<copy todir="${dist.dir}/etc" overwrite="true">
-			<fileset dir="${omero.home}/etc">
-				<exclude name="local.properties"/>
+	<target name="dsl" depends="dsl-init" unless="dsl.not.required">
+		<dsl destdir="${target.dir}/generated/">
+			<fileset dir="${resrc.dir}">
+				<include name="${dsl.pat}"/>
 			</fileset>
+		</dsl>
+		<done name="dsl"/>
+		<delete>
+			<fileset dir="${src.dest}" includes="**/*.java">
+				<present present="both" targetdir="${src.dir}"/>
+			</fileset>
+		</delete>
+	</target>
+
+	<target name="dist" depends="lifecycle.dist" description="Copies HBM files to dist">
+		<copy todir="${dist.dir}/include">
+			<fileset dir="${src.dest}" includes="**/*.hbm.xml"/>
+			<fileset dir="${resrc.dest}" includes="**/*.hbm.xml"/>
+		</copy>
+	</target>
+
+	<target name="generate-schema" depends="generate" description="Generates SQL based on Hibernate mappings">
+		<mkdir dir="${sql.dir}/${omero.dbversion}__${omero.dbpatch}" />
+		<copy file="${resrc.dest}/ddl.sql" tofile="${sql.dir}/${omero.dbversion}__${omero.dbpatch}__schema.sql"/>
+		<copy file="${resrc.dest}/data.sql" tofile="${sql.dir}/${omero.dbversion}__${omero.dbpatch}__data.sql"/>
+		<copy todir="${sql.dir}/${omero.dbversion}__${omero.dbpatch}">
+			<fileset dir="${src.dest}" includes="**/*.hbm.xml"/>
+			<fileset dir="${resrc.dest}" includes="**/*.hbm.xml"/>
 		</copy>
 
-		<!-- 
-			Copies ...
-		-->
-		<copy todir="${dist.dir}">
-			<fileset dir="${omero.home}">
-				<include name="omero.class"/>
-				<include name="components/antlib/**"/>
-				<include name="sql/**"/>
-				<include name="lib/tools/**"/>
-			</fileset>
-		</copy>
-
-		<mkdir dir="${dist.dir}/client"/>
-		<ivy:resolve file="${import.dir}/omero.ivy" type="jar" conf="client" transitive="false"/>
-		<ivy:retrieve conf="client" pattern="${dist.dir}/client/[module]-[revision].[ext]" sync="true"/>
-		<mkdir dir="${dist.dir}/lib/repository"/>
-		<ivy:resolve file="${import.dir}/omero.ivy" type="jar" conf="server" transitive="true"/>
-		<ivy:retrieve conf="server" pattern="${dist.dir}/lib/repository/[module]-[revision].[ext]" sync="true"/>
-
-		<!-- Copy new build.xml to ${dist.dir} -->
-                <copy
-                        file="${import.dir}/omero.xml"
-                        tofile="${dist.dir}/build.xml"
-                        overwrite="true"
-                />
-                <copy
-                        file="${import.dir}/omero.ivy"
-                        tofile="${dist.dir}/omero.ivy"
-                        overwrite="true"
-                />
-
 	</target>
 
-	<target name="get-libs">
-		<property name="deps.build.dir" value="${omero.home}"/>
-		<antcall target="deps-retrieve" inheritAll="true" inheritRefs="true"/>
-	</target>
+    <!-- = = = = = = = = = = = = = = = = =
+          misc          
+         = = = = = = = = = = = = = = = = = -->
 
-	 <target name="findbugs" depends="multiproject" description="Generates findbugs.xml and checkstyle.xml for all components">
-		<iterate target="findbugs"/>
-		<iterate buildpathref="tools.buildpath" target="findbugs"/>
-	 </target>
+    <target name="schemaupdate" depends="prepare,load-hibernate">
+        <taskdef name="schemaupdate"
+            classname="org.hibernate.tool.hbm2ddl.SchemaUpdateTask"
+            classpathref="omero.classpath"/>
 
-	 <target name="coverage" depends="get-libs"
-		description="Merge code coverage reports into single top-level report">
-		<taskdef resource="emma_ant.properties" classpathref="omero.classpath" />
-		<emma>
-			<merge outfile="${target.dir}/coverage.es" >
-				<fileset dir="components" includes="**/target/coverage.emma,**/target/metadata.emma"/>
-			</merge>
-			<report sourcepath="${src.dir}" >
-				<fileset dir="${target.dir}" includes="coverage.es"/>
-				<html outfile="${target.dir}/coverage.html" />
-				<xml outfile="${target.dir}/coverage.xml" />
-			</report>
-		</emma>
-	 </target>
+        <schemaupdate
+            properties="${resrc.dest}/local.properties" text="true" quiet="no">
+            <fileset dir="${classes.dir}">
+                <include name="**/*.hbm.xml"/>
+            </fileset>
+        </schemaupdate>
+    </target>
+
+    <target name="schemavalidate" depends="prepare,load-hibernate">
+        <taskdef name="schemavalidator"
+            classname="org.hibernate.tool.hbm2ddl.SchemaValidatorTask"
+            classpathref="omero.classpath"/>
+
+        <schemavalidator
+            properties="${resrc.dest}/local.properties">
+            <fileset dir="${classes.dir}">
+                <include name="**/*.hbm.xml"/>
+            </fileset>
+        </schemavalidator>
+    </target>
 
 </project>
