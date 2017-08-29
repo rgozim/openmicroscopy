@@ -44,20 +44,18 @@
     <script type="text/javascript" src="{% static "webclient/javascript/jquery.jstree.fields_plugin.js"|add:url_suffix %}"></script>
     <script type="text/javascript" src="{% static "webclient/javascript/jquery.jstree.omecut_plugin.js"|add:url_suffix %}"></script>
     <script type="text/javascript" src="{% static "webclient/javascript/jquery.jstree.ometools_plugin.js"|add:url_suffix %}"></script>
-   <script type="text/javascript" src="{% static "webclient/javascript/jquery.jstree.childcount_plugin.js"|add:url_suffix %}"></script>
-   <script type="text/javascript" src="{% static "webclient/javascript/jquery.jstree.truncatetext_plugin.js"|add:url_suffix %}"></script>
+    <script type="text/javascript" src="{% static "webclient/javascript/jquery.jstree.childcount_plugin.js"|add:url_suffix %}"></script>
+    <script type="text/javascript" src="{% static "webclient/javascript/jquery.jstree.truncatetext_plugin.js"|add:url_suffix %}"></script>
 
     <script type="text/javascript" src="{% static 'webclient/javascript/ome.chgrp.js'|add:url_suffix %}"></script>
 
     <!-- Main jsTree code is here -->
     <script src="{% static 'webclient/javascript/ome.tree.js'|add:url_suffix %}"></script>
 
-
     <script type="text/javascript">
 
     // Variable to store selection data when using jstree refresh
     var refreshPathsReverse = [];
-
 
     // Called from ome.tree.js
     var updateParentRemoveNode = function(inst, node, parent) {
@@ -125,8 +123,6 @@
             // loaded and will thus always have no count)
             OME.updateNodeChildCount(inst, parentNode, parent.children.length);
         });
-
-
     };
 
     var updateParentInsertNode = function(inst, node, parent, position) {
@@ -428,7 +424,7 @@
             };
 
             // build up an object with all the links we want to create
-            addDataToPayload(linkPayload, node, parent)       
+            addDataToPayload(linkPayload, node, parent)
 
             // if we're waiting on timeout, clear this...
             if (linkNodeTimeout) {
@@ -461,7 +457,7 @@
                 });
                 unlinkPayload = {};
             };
-            addDataToPayload(unlinkPayload, node, parent)       
+            addDataToPayload(unlinkPayload, node, parent)
             if (unlinkNodeTimeout) {
                 clearTimeout(unlinkNodeTimeout);
             }
@@ -674,86 +670,20 @@
 
     <!-- configure toolbar buttons -->
     <script type="text/javascript">
+        window.user_id = {{ ome.user_id }};
+        window.urls = {
+            _manage_action_containers: {
+                _add_new_container: "{% url 'manage_action_containers' 'addnewcontainer' %}",
+                _delete_many: "{% url 'manage_action_containers' 'deletemany' %}"
+            },
 
-    $(function () {
-
-        var inst = $.jstree.reference('#dataTree');
-
-        // Attach click handlers to the individual buttons
-
-        $('#addprojectButton').click(function() {
-            OME.handleNewContainer("project");
-        });
-
-        $('#adddatasetButton').click(function() {
-            OME.handleNewContainer("dataset");
-        });
-
-        $('#addscreenButton').click(function() {
-            OME.handleNewContainer("screen");
-        });
-
-        $('#addtagButton').click(function() {
-            OME.handleNewContainer("tag");
-        });
-
-        $('#addtagsetButton').click(function() {
-            OME.handleNewContainer("tagset");
-        });
-
-        $('#copyButton').click(function() {
-            var objs = inst.get_selected(true)
-            inst.copy(objs);
-        });
-
-        $('#cutButton').click(function() {
-            var objs = inst.get_selected(true)
-            inst.cut(objs);
-        });
-
-        $('#createshareButton').click(function() {
-            OME.createShare(inst.get_selected());
-        });
-
-        $('#pasteButton').click(function() {
-            var objs = inst.get_selected(true);
-            if (objs.length == 1) {
-                inst.paste(objs[0]);
-                // Always disable paste button immediatly after using it
-                enableToolbarButton('paste', false);
+            _fileset_check : {
+                _delete : "{% url 'fileset_check' 'delete' %}"
             }
-        });
-
-        $('#deleteButton').click(function() {
-            var deleteUrl = "{% url 'manage_action_containers' 'deletemany' %}",
-                filesetCheckUrl = "{% url 'fileset_check' 'delete' %}";
-            OME.handleDelete(deleteUrl, filesetCheckUrl, {{ ome.user.id }});
-        });
-
-        $('#refreshButton').click(function() {
-            // Grab the paths to the items that are currently selected, for restoration later
-            var selections = inst.get_selected();
-
-            $.each(selections, function(index, selection) {
-                 var path = inst.get_path(selection, false, true).reverse();
-                 var refreshPathReverse = [];
-                 $.each(path, function(index, pathComponent) {
-                      var node = inst.get_node(pathComponent);
-                      var tuple = [node.type, node.data.obj.id];
-                      refreshPathReverse.push(tuple);
-                 });
-                 refreshPathsReverse.push(refreshPathReverse);
-
-            });
-
-            inst.deselect_all();
-            // NB: the global variable refreshPathsReverse is used in ome.tree.js
-            // after refresh, then set to empty list.
-            inst.refresh();
-        });
-
-    });
+        };
     </script>
+
+    <script type="text/javascript" src="{% static "webclient/javascript/containers.js" %}"></script>
 
     <!-- set up the middle panel to only show the div chosen by <select> -->
     {% include "webclient/data/includes/center_plugin_init.js.html" %}
