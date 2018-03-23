@@ -393,7 +393,7 @@ To get started using Eclipse, execute "ant build-dev" and import the top-level
                 includes="bin/omero" filemode="755"/>
         </zip>
         <zip destfile="${omero.home}/target/OMERO.java-${omero.version}.zip">
-            <zipfileset dir="${blitz.comp}/src"         prefix="OMERO.java-${omero.version}/src"  includes="**/*.java"/>
+            <zipfileset dir="${blitz.comp}/src/main/java"         prefix="OMERO.java-${omero.version}/src"  includes="**/*.java"/>
             <zipfileset dir="${blitz.comp}/target"      prefix="OMERO.java-${omero.version}/src"  includes="**/*.java"/>
             <zipfileset dir="${blitz.comp}/generated"   prefix="OMERO.java-${omero.version}/src"  includes="**/*.java"/>
             <zipfileset dir="${insight.comp}/SRC"       prefix="OMERO.java-${omero.version}/src"  includes="**/*.java"/>
@@ -460,8 +460,8 @@ To get started using Eclipse, execute "ant build-dev" and import the top-level
 
     <target name="release-slice2html" description="The Ice API Documentation">
       <mkdir dir="${omero.home}/target/docs"/>
-      <copy file="${blitz.comp}/resources/header.txt" tofile="${omero.home}/target/docs/header.txt" overwrite="true"/>
-      <copy file="${blitz.comp}/resources/footer.txt" tofile="${omero.home}/target/docs/footer.txt" overwrite="true"/>
+      <copy file="${blitz.comp}/src/main/resources/header.txt" tofile="${omero.home}/target/docs/header.txt" overwrite="true"/>
+      <copy file="${blitz.comp}/src/main/resources/footer.txt" tofile="${omero.home}/target/docs/footer.txt" overwrite="true"/>
       <replace file="${omero.home}/target/docs/header.txt" token="@VERSION@" value="${omero.version}"/>
       <replace file="${omero.home}/target/docs/footer.txt" token="@VERSION@" value="${omero.version}"/>
       <mkdir dir="${dist.dir}/docs/api/slice2html"/>
@@ -473,7 +473,7 @@ To get started using Eclipse, execute "ant build-dev" and import the top-level
            <arg value="-I"/>
            <arg value="${blitz.comp}/generated"/>
            <arg value="-I"/>
-           <arg value="${blitz.comp}/resources"/>
+           <arg value="${blitz.comp}/src/main/resources"/>
            <arg value="-I"/>
            <arg value="${ice.slicepath}"/>
            <arg value="--output-dir"/>
@@ -482,8 +482,8 @@ To get started using Eclipse, execute "ant build-dev" and import the top-level
         <fileset dir="${omero.home}/components/tools" includes="**/resources/**/*.ice"/>
         <fileset dir="${omero.home}/components/server/src" includes="**/*.ice"/>
         <fileset dir="${omero.home}/components/blitz/generated" includes="**/*.ice"/>
-        <fileset dir="${omero.home}/components/blitz/resources" includes="**/*.ice"/>
-        <fileset dir="${omero.home}/components/blitz/resources" includes="README.ice"/>
+        <fileset dir="${omero.home}/components/blitz/src/main/resources" includes="**/*.ice"/>
+        <fileset dir="${omero.home}/components/blitz/src/main/resources" includes="README.ice"/>
        </apply>
     </target>
 

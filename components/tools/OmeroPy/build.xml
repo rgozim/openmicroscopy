@@ -19,6 +19,10 @@
         Python bindings for the blitz server.
     </description>
 
+    <!-- Overrides! -->
+    <property name="src.dir"         value="${basedir}/src" />
+    <property name="test.dir"        value="${basedir}/test"/>
+
     <dirname property="up-two"        file="${basedir}"/>
     <dirname property="up-one"        file="${up-two}"/>
     <property name="import.dir"       value="${up-one}/antlib/resources"/>

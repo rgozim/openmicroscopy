@@ -19,7 +19,7 @@ from SCons.Script.SConscript import SConsEnvironment
 cwd = os.path.abspath(os.path.dirname(__file__))
 top = os.path.abspath(os.path.join(cwd, os.path.pardir, os.path.pardir))
 blitz_resources = os.path.abspath(
-    os.path.join(top, "components", "blitz", "resources"))
+    os.path.join(top, "components", "blitz", "src", "main", "resources"))
 blitz_generated = os.path.abspath(
     os.path.join(top, "components", "blitz", "generated"))
 tools_include = os.path.abspath(
@@ -29,8 +29,10 @@ tools_library = os.path.abspath(
 header = os.path.join(blitz_resources, "header.txt")
 
 # Relative
-resources = os.path.abspath("resources")
+resources = os.path.abspath("src/main/resources")
 generated = os.path.abspath("generated")
+
+print "PYTHON RESOURCES = " + resources
 
 # Support ICE_HOME
 if "ICE_HOME" in os.environ:
@@ -106,7 +108,15 @@ def make_slice(command):
 def slice_java(env, where, dir):
     command = [slice2java, "--tie"] + common()
     actions = []
+    print "where: %s" % where
+    print "dir: %s" % dir
     for basename, filename in basenames(where, dir):
+        out = os.path.join (where, filename + '.ice')
+        if os.path.isfile(out):
+            print "exists: %s" % out
+        else:
+            print "missing: %s" % out
+
         c = env.Command(
             jdep(env["DEPMAP"], filename + '.java'),              # target
             filename + '.ice',                                    # source

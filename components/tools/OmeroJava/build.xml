@@ -20,6 +20,10 @@
     OmeroJava is the integration test suite for the server services.
     </description>
 
+    <!-- Overrides! -->
+    <property name="resrc.dir"       value="${basedir}/resources"/>
+    <property name="test.dir"        value="${basedir}/test"/>
+
     <dirname property="up-two" file="${basedir}"/>
     <dirname property="up-one" file="${up-two}"/>
     <property name="import.dir" value="${up-one}/antlib/resources"/>
@@ -99,7 +103,7 @@
 
         <jar destfile="${target.dir}/${ivy.module}-sources.jar">
             <!-- FIXME: Start off with some of the source classes -->
-            <fileset dir="${blitz.comp}/src">
+            <fileset dir="${blitz.comp}/src/main/java">
                 <include name="ome/formats/**/*.java"/>
                 <include name="omero/**/*.java"/>
             </fileset>
