@@ -218,7 +218,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 /**
- * Unit tests for the parsing and matching of graph policy rules from <tt>components/blitz/resources/ome/services/graph-rules/</tt>.
+ * Unit tests for the parsing and matching of graph policy rules from <tt>components/blitz/src/main/resources/ome/services/graph-rules/</tt>.
  * @author m.t.b.carroll@dundee.ac.uk
  * @since 5.4.1
  */

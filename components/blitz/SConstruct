@@ -9,7 +9,7 @@ import os, glob
 from blitz_tools import *
 
 env = OmeroEnvironment()
-env.Repository(["generated","resources"])
+env.Repository(["generated","src/main/resources"])
 
 #
 # JAVA: since Ice doesn't (and can't really) create a single

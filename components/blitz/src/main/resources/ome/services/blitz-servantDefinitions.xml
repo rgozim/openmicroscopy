@@ -28,7 +28,7 @@
   <!-- Non-ome.api service-based
   ==============================================================================
   All of these services are marked as "singleton=false" since each ServiceFactoryI
-  manages its own statefulness. See documentation in blitz/resources/omero/API.ice
+  manages its own statefulness. See documentation in blitz/src/main/resources/omero/API.ice
   -->
 
   <bean id="omero.api.IRoi" class="omero.api._IRoiTie" singleton="false">
