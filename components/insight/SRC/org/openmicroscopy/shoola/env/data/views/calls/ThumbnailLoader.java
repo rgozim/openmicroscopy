@@ -127,12 +127,10 @@ public class ThumbnailLoader
             int maxHeight = Integer.parseInt(configService
                     .getConfigValue("omero.pixeldata.max_plane_height"));
 
-            return pxd.getSizeX() * pxd.getSizeY() > maxWidth * maxHeight
+            return pxd.getSizeX() * pxd.getSizeY() > maxWidth * maxHeight;
         } catch (ServerError e) {
-            LogMessage msg = new LogMessage();
-            msg.print("Cannot retrieve thumbnail");
-            msg.print(e);
-            context.getLogger().error(this, msg);
+            context.getLogger().error(this,
+                    "Cannot retrieve thumbnail");
         }
     }
 
@@ -218,31 +216,6 @@ public class ThumbnailLoader
                 thumbPix, userID, valid);
     }
 
-    private void processDataObject(DataObject image) {
-        final PixelsData pxd = image instanceof ImageData ?
-                ((ImageData) image).getDefaultPixels() :
-                (PixelsData) image;
-
-        final long imageId = pxd.getImage().getId();
-        final String description = "Loading thumbnail";
-        final boolean last = size == k;
-        k++;
-        final long iid = imageID;
-        add(new BatchCall(description) {
-            public void doCall() {
-                // If image has pyramids, check to see if image is ready for loading as a thumbnail
-                if (requiresPixelsPyramid(configService, index)) {
-                    //check pyramid state
-
-
-
-                } else {
-                    loadThumbail(index, userID, value, last, iid);
-                }
-            }
-        });
-    }
-
     /**
      * Creates a {@link BatchCall} to retrieve rendering control.
      *
@@ -305,6 +278,7 @@ public class ThumbnailLoader
                             // If image has pyramids, check to see if image is ready for loading as a thumbnail
                             if (requiresPixelsPyramid(configService, pxd)) {
                                 //check pyramid state
+                                loadThumbail(pxd, userID, store, last, imageId);
                             } else {
                                 loadThumbail(pxd, userID, store, last, imageId);
                             }
