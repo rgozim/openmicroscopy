@@ -21,8 +21,11 @@
 
 package org.openmicroscopy.shoola.env.data.views.calls;
 
+import omero.RType;
 import omero.ServerError;
 import omero.api.IConfigPrx;
+import omero.api.IQueryPrx;
+import omero.api.RawPixelsStorePrx;
 import omero.api.ThumbnailStorePrx;
 import omero.gateway.SecurityContext;
 import omero.gateway.exception.DSOutOfServiceException;
@@ -31,6 +34,8 @@ import omero.gateway.model.DataObject;
 import omero.gateway.model.ImageData;
 import omero.gateway.model.PixelsData;
 import omero.log.LogMessage;
+import omero.sys.Parameters;
+import omero.sys.ParametersI;
 import org.openmicroscopy.shoola.env.data.OmeroImageService;
 import org.openmicroscopy.shoola.env.data.model.ThumbnailData;
 import org.openmicroscopy.shoola.env.data.views.BatchCall;
@@ -41,7 +46,9 @@ import org.openmicroscopy.shoola.util.image.io.WriterImage;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -151,6 +158,24 @@ public class ThumbnailLoader
         return null;
     }
 
+    private void getJobState(long filesetId) throws DSOutOfServiceException, ServerError {
+        IQueryPrx querySrv = context.getGateway()
+                .getQueryService(ctx);
+
+        String query = "SELECT u " +
+                "FROM FilesetJobLink fjl, Job u, JobOriginalFileLink jol " +
+                "WHERE :id = fjl.parent.id AND fjl.child = u AND u = jol.parent " +
+                "ORDER BY u.id";
+
+        Parameters params = new ParametersI();
+        params.map = new HashMap<>();
+        params.map.put("id", omero.rtypes.rlong(filesetId));
+
+        List<List<RType>> results = querySrv.projection(query, params);
+
+        System.out.print(results.toString());
+    }
+
     private ThumbnailStorePrx getThumbnailStore() {
         try {
             return service.createThumbnailStore(ctx);
@@ -165,13 +190,12 @@ public class ThumbnailLoader
     /**
      * Loads the thumbnail for {@link #images}<code>[index]</code>.
      *
-     * @param pxd     The image the thumbnail for.
-     * @param userID  The id of the user the thumbnail is for.
-     * @param store   The thumbnail store to use.
-     * @param imageID The id of the image associated to the pixels set.
+     * @param pxd    The image the thumbnail for.
+     * @param userID The id of the user the thumbnail is for.
+     * @param store  The thumbnail store to use.
      */
-    private void loadThumbail(PixelsData pxd, long userID,
-                              ThumbnailStorePrx store, boolean last) {
+    private void loadThumbnail(PixelsData pxd, long userID,
+                               ThumbnailStorePrx store, boolean last) {
         BufferedImage thumbPix = null;
         boolean valid = true;
         int sizeX = maxWidth, sizeY = maxHeight;
@@ -263,7 +287,7 @@ public class ThumbnailLoader
             return;
         }
 
-        for (Long userID : userIDs) {
+        for (long userID : userIDs) {
             final ThumbnailStorePrx store = getThumbnailStore();
             try {
                 int size = images.size() - 1;
@@ -272,6 +296,7 @@ public class ThumbnailLoader
                     final PixelsData pxd = image instanceof ImageData ?
                             ((ImageData) image).getDefaultPixels() :
                             (PixelsData) image;
+
 
                     final String description = "Loading thumbnail";
                     final boolean last = size == k;
@@ -282,9 +307,21 @@ public class ThumbnailLoader
                             // If image has pyramids, check to see if image is ready for loading as a thumbnail
                             if (requiresPixelsPyramid(configService, pxd)) {
                                 //check pyramid state
-                                loadThumbail(pxd, userID, store, last);
+                                RawPixelsStorePrx rawPixelStore = context.getGateway()
+                                        .getPixelsStore(ctx);
+                                try {
+                                    rawPixelStore.setPixelsId(pxd.getId(), false);
+                                } catch (Exception e) {
+                                    context.getLogger().debug(this,
+                                            e.getMessage());
+
+                                    // Return a loading symbol
+
+                                }
+
+                                loadThumbnail(pxd, userID, store, last);
                             } else {
-                                loadThumbail(pxd, userID, store, last);
+                                loadThumbnail(pxd, userID, store, last);
                             }
                         }
                     });
