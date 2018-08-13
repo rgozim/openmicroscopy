@@ -1049,6 +1049,27 @@ public class ThumbnailBean extends AbstractLevel2Service
      *      ome.model.display.RenderingDef, java.lang.Integer,
      *      java.lang.Integer)
      */
+    // @RolesAllowed("user")
+    // @Transactional(readOnly = false)
+    // public byte[] getThumbnail(Integer sizeX, Integer sizeY) {
+    //     errorIfNullPixelsAndRenderingDef();
+    //     Dimension dimensions = sanityCheckThumbnailSizes(sizeX, sizeY);
+    //     // Reloading thumbnail metadata because we don't know what may have
+    //     // happened in the database since our last method call.
+    //     Set<Long> pixelsIds = new HashSet<Long>();
+    //     pixelsIds.add(pixelsId);
+    //     byte[] value = null;
+    //     try {
+    //         ctx.loadAndPrepareMetadata(pixelsIds, dimensions);
+    //         thumbnailMetadata = ctx.getMetadata(pixelsId);
+    //         value = retrieveThumbnailAndUpdateMetadata(false);
+    //     } catch (Throwable t) {
+    //         value = handleNoThumbnail(t, dimensions);
+    //     }
+    //     iQuery.clear();//see #11072
+    //     return value;
+    // }
+
     @RolesAllowed("user")
     @Transactional(readOnly = false)
     public byte[] getThumbnail(Integer sizeX, Integer sizeY) {
@@ -1062,7 +1083,19 @@ public class ThumbnailBean extends AbstractLevel2Service
         try {
             ctx.loadAndPrepareMetadata(pixelsIds, dimensions);
             thumbnailMetadata = ctx.getMetadata(pixelsId);
-            value = retrieveThumbnailAndUpdateMetadata(false);
+            byte[] thumbnail = retrieveThumbnail(rewriteMetadata);
+            if (inProgress && !PROGRESS_VERSION.equals(thumbnailMetadata)) {
+                thumbnailMetadata.setVersion(PROGRESS_VERSION);
+                dirtyMetadata = true;
+            }
+            if (dirtyMetadata) {
+                try {
+                    iUpdate.saveObject(thumbnailMetadata);
+                } finally {
+                    dirtyMetadata = false;
+                }
+            }
+            return thumbnail;
         } catch (Throwable t) {
             value = handleNoThumbnail(t, dimensions);
         }
@@ -1096,39 +1129,36 @@ public class ThumbnailBean extends AbstractLevel2Service
         return thumbnail;
     }
 
+    private byte[] retrieveThumbnail() throws IOException {
+        boolean cached = ctx.isThumbnailCached(pixels.getId());
+        if (cached) {
+            if (log.isDebugEnabled()) {
+                log.debug("Cache hit.");
+            }
+        } else {
+            if (log.isDebugEnabled()) {
+                log.debug("Cache miss, thumbnail missing or out of date.");
+            }
+            _createThumbnail();
+        }
+        return ioService.getThumbnail(thumbnailMetadata);
+    }
+
     /**
      * Creates the thumbnail or retrieves it from cache.
+     *
      * @return Thumbnail bytes.
      */
-    private byte[] retrieveThumbnail(boolean rewriteMetadata)
-    {
-        if (inProgress)
-        {
+    private byte[] retrieveThumbnail(boolean rewriteMetadata) {
+        if (inProgress) {
             return retrieveThumbnailDirect(
                     thumbnailMetadata.getSizeX(),
                     thumbnailMetadata.getSizeY(),
                     0, 0, rewriteMetadata);
         }
 
-        try
-        {
-            boolean cached = ctx.isThumbnailCached(pixels.getId());
-            if (cached)
-            {
-                if (log.isDebugEnabled())
-                {
-                    log.debug("Cache hit.");
-                }
-            }
-            else
-            {
-                if (log.isDebugEnabled())
-                {
-                    log.debug("Cache miss, thumbnail missing or out of date.");
-                }
-                _createThumbnail();
-            }
-            byte[] thumbnail = ioService.getThumbnail(thumbnailMetadata);
+        try {
+            byte[] thumbnail = retrieveThumbnailSimple(rewriteMetadata);
             //Thumbnails are always saved to disk and then retrieved when the
             //call stack includes retrieveThumbnail(). This includes the "clock".
             //inProgress is not set early enough for retrieveThumbnailDirect()
@@ -1148,12 +1178,10 @@ public class ThumbnailBean extends AbstractLevel2Service
             //the valid rendering settings for the current user are modified.
             if (inProgress) {
                 ioService.removeThumbnails(
-                        Arrays.asList(new Long[] { thumbnailMetadata.getId() }));
+                        Arrays.asList(thumbnailMetadata.getId()));
             }
             return thumbnail;
-        }
-        catch (IOException e)
-        {
+        } catch (IOException e) {
             log.error("Could not obtain thumbnail", e);
             throw new ResourceError(e.getMessage());
         }

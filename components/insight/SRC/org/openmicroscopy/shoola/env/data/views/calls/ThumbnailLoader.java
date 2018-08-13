@@ -21,6 +21,8 @@
 
 package org.openmicroscopy.shoola.env.data.views.calls;
 
+import ome.conditions.MissingPyramidException;
+import ome.conditions.ResourceError;
 import omero.RType;
 import omero.ServerError;
 import omero.api.IConfigPrx;
@@ -297,29 +299,31 @@ public class ThumbnailLoader
                             ((ImageData) image).getDefaultPixels() :
                             (PixelsData) image;
 
-
                     final String description = "Loading thumbnail";
                     final boolean last = size == k;
                     k++;
                     add(new BatchCall(description) {
                         @Override
                         public void doCall() throws Exception {
-                            // If image has pyramids, check to see if image is ready for loading as a thumbnail
+                            // If image has pyramids, check to see if image is ready for loading as a thumbnail.
                             if (requiresPixelsPyramid(configService, pxd)) {
-                                //check pyramid state
+                                //
                                 RawPixelsStorePrx rawPixelStore = context.getGateway()
                                         .getPixelsStore(ctx);
                                 try {
                                     rawPixelStore.setPixelsId(pxd.getId(), false);
-                                } catch (Exception e) {
-                                    context.getLogger().debug(this,
-                                            e.getMessage());
 
-                                    // Return a loading symbol
+                                    loadThumbnail(pxd, userID, store, last);
+                                } catch (MissingPyramidException e) {
+                                    // Thrown if pyramid file is missing
 
+                                } catch (ResourceError e) {
+                                    // Thrown if pyramid file is corrupt
+                                    context.getLogger()
+                                            .debug(this, e.getMessage());
+
+                                    // Need to think of a code path for this
                                 }
-
-                                loadThumbnail(pxd, userID, store, last);
                             } else {
                                 loadThumbnail(pxd, userID, store, last);
                             }
