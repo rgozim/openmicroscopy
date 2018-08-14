@@ -30,12 +30,12 @@ import omero.api.IQueryPrx;
 import omero.api.RawPixelsStorePrx;
 import omero.api.ThumbnailStorePrx;
 import omero.gateway.SecurityContext;
+import omero.gateway.exception.DSAccessException;
 import omero.gateway.exception.DSOutOfServiceException;
 import omero.gateway.exception.RenderingServiceException;
 import omero.gateway.model.DataObject;
 import omero.gateway.model.ImageData;
 import omero.gateway.model.PixelsData;
-import omero.log.LogMessage;
 import omero.sys.Parameters;
 import omero.sys.ParametersI;
 import org.openmicroscopy.shoola.env.data.OmeroImageService;
@@ -43,6 +43,7 @@ import org.openmicroscopy.shoola.env.data.model.ThumbnailData;
 import org.openmicroscopy.shoola.env.data.views.BatchCall;
 import org.openmicroscopy.shoola.env.data.views.BatchCallTree;
 import org.openmicroscopy.shoola.util.image.geom.Factory;
+import org.openmicroscopy.shoola.util.image.io.EncoderException;
 import org.openmicroscopy.shoola.util.image.io.WriterImage;
 
 import java.awt.*;
@@ -126,38 +127,20 @@ public class ThumbnailLoader
      */
     private SecurityContext ctx;
 
+
     /**
-     * Returns whether a pyramid should be used for the given {@link PixelsData}.
-     * This usually implies that this is a "Big image" and therefore will
-     * need tiling.
-     *
-     * @param configService
-     * @param pxd
-     * @return
+     * Use getConfigService() instead of this directly
      */
-    private boolean requiresPixelsPyramid(IConfigPrx configService, PixelsData pxd) throws ServerError {
-        try {
-            int maxWidth = Integer.parseInt(configService
-                    .getConfigValue("omero.pixeldata.max_plane_width"));
-            int maxHeight = Integer.parseInt(configService
-                    .getConfigValue("omero.pixeldata.max_plane_height"));
+    private IConfigPrx configService;
 
-            return pxd.getSizeX() * pxd.getSizeY() > maxWidth * maxHeight;
-        } catch (ServerError e) {
-            context.getLogger().error(this,
-                    "Cannot retrieve thumbnail");
-            throw e;
-        }
-    }
 
-    private IConfigPrx getConfigService() {
-        try {
-            return context.getGateway().getConfigService(ctx);
-        } catch (DSOutOfServiceException e) {
-            context.getLogger().debug(this,
-                    "Cannot get config service.");
+    private IConfigPrx getConfigService() throws DSOutOfServiceException {
+        if (configService == null) {
+            configService = context.getGateway()
+                    .getConfigService(ctx);
+        } else {
+            return configService;
         }
-        return null;
     }
 
     private void getJobState(long filesetId) throws DSOutOfServiceException, ServerError {
@@ -178,75 +161,6 @@ public class ThumbnailLoader
         System.out.print(results.toString());
     }
 
-    private ThumbnailStorePrx getThumbnailStore() {
-        try {
-            return service.createThumbnailStore(ctx);
-            //  service.createPixelsStore()
-        } catch (Exception e) {
-            context.getLogger().debug(this,
-                    "Cannot start thumbnail store.");
-        }
-        return null;
-    }
-
-    /**
-     * Loads the thumbnail for {@link #images}<code>[index]</code>.
-     *
-     * @param pxd    The image the thumbnail for.
-     * @param userID The id of the user the thumbnail is for.
-     * @param store  The thumbnail store to use.
-     */
-    private void loadThumbnail(PixelsData pxd, long userID,
-                               ThumbnailStorePrx store, boolean last) {
-        BufferedImage thumbPix = null;
-        boolean valid = true;
-        int sizeX = maxWidth, sizeY = maxHeight;
-        try {
-            if (asImage) {
-                sizeX = pxd.getSizeX();
-                sizeY = pxd.getSizeY();
-            } else {
-                Dimension d = Factory.computeThumbnailSize(sizeX, sizeY,
-                        pxd.getSizeX(), pxd.getSizeY());
-                sizeX = d.width;
-                sizeY = d.height;
-            }
-
-            if (!store.setPixelsId(pxd.getId())) {
-                store.resetDefaults();
-                store.setPixelsId(pxd.getId());
-            }
-            if (userID >= 0) {
-                long rndDefId = service.getRenderingDef(ctx,
-                        pxd.getId(), userID);
-                // the user might not have own rendering settings
-                // for this image
-                if (rndDefId >= 0)
-                    store.setRenderingDefId(rndDefId);
-            }
-
-            thumbPix = WriterImage.bytesToImage(
-                    store.getThumbnail(omero.rtypes.rint(sizeX),
-                            omero.rtypes.rint(sizeY)));
-
-        } catch (Throwable e) {
-            thumbPix = null;
-            LogMessage msg = new LogMessage();
-            msg.print("Cannot retrieve thumbnail");
-            msg.print(e);
-            context.getLogger().error(this, msg);
-        } finally {
-            if (last) {
-                context.getDataService().closeService(ctx, store);
-            }
-        }
-        if (thumbPix == null) {
-            valid = false;
-            thumbPix = Factory.createDefaultImageThumbnail(sizeX, sizeY);
-        }
-        currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
-                thumbPix, userID, valid);
-    }
 
     /**
      * Creates a {@link BatchCall} to retrieve rendering control.
@@ -273,6 +187,134 @@ public class ThumbnailLoader
         };
     }
 
+    private void handleBatchCall(IConfigPrx configService, DataObject image, long userId, boolean last) throws Exception {
+        PixelsData pxd = image instanceof ImageData ?
+                ((ImageData) image).getDefaultPixels() :
+                (PixelsData) image;
+
+        // If image has pyramids, check to see if image is ready for loading as a thumbnail.
+        if (requiresPixelsPyramid(configService, pxd)) {
+            RawPixelsStorePrx rawPixelStore = context.getGateway()
+                    .getPixelsStore(ctx);
+            try {
+                // This method will throw if there is an issue with the pyramid
+                // generation (i.e. it's not finished, corrupt)
+                rawPixelStore.setPixelsId(pxd.getId(), false);
+
+                // If we get here, load the thumbnail
+                loadThumbnail(pxd, userId);
+            } catch (MissingPyramidException e) {
+                ThumbnailStorePrx store = getThumbnailStore();
+
+                // Thrown if pyramid file is missing
+                // create and show a loading symbol
+                currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
+                        store, userId, valid);
+
+            } catch (ResourceError e) {
+                // Thrown if pyramid file is corrupt
+                context.getLogger()
+                        .debug(this, e.getMessage());
+
+                // Need to think of a code path for this
+            }
+        } else {
+            loadThumbnail(pxd, userId);
+        }
+
+        if (last) {
+            context.getDataService().closeService(ctx, store);
+        }
+    }
+
+    PixelsData dataObjectToPixelsData(DataObject image) {
+        return image instanceof ImageData ?
+                ((ImageData) image).getDefaultPixels() :
+                (PixelsData) image;
+    }
+
+    java.awt.Image tryGetThumbnail(ThumbnailStorePrx thumbStore, PixelsData pxd, long userId)
+            throws ResourceError, DSOutOfServiceException, ServerError {
+        try {
+            RawPixelsStorePrx rawPixelStore = context.getGateway()
+                    .getPixelsStore(ctx);
+
+            // This method will throw if there is an issue with the pyramid
+            // generation (i.e. it's not finished, corrupt)
+            rawPixelStore.setPixelsId(pxd.getId(), false);
+
+            // If we get here, load the thumbnail
+            return loadThumbnail(thumbStore, pxd, userId);
+        } catch (MissingPyramidException e) {
+            // Thrown if pyramid file is missing
+            // create and show a loading symbol
+            return Toolkit.getDefaultToolkit()
+                    .getImage("ajax-loader.gif");
+        }
+    }
+
+    /**
+     * Loads the thumbnail for {@link #images}<code>[index]</code>.
+     *
+     * @param pxd    The image the thumbnail for.
+     * @param userId The id of the user the thumbnail is for.
+     * @param store  The thumbnail store to use.
+     */
+    private BufferedImage loadThumbnail(ThumbnailStorePrx store, PixelsData pxd, long userId)
+            throws ServerError, EncoderException, DSAccessException, DSOutOfServiceException {
+        int sizeX = maxWidth, sizeY = maxHeight;
+        if (asImage) {
+            sizeX = pxd.getSizeX();
+            sizeY = pxd.getSizeY();
+        } else {
+            Dimension d = Factory.computeThumbnailSize(sizeX, sizeY,
+                    pxd.getSizeX(), pxd.getSizeY());
+            sizeX = d.width;
+            sizeY = d.height;
+        }
+
+        if (!store.setPixelsId(pxd.getId())) {
+            store.resetDefaults();
+            store.setPixelsId(pxd.getId());
+        }
+        if (userId >= 0) {
+            long rndDefId = service.getRenderingDef(ctx,
+                    pxd.getId(), userId);
+            // the user might not have own rendering settings
+            // for this image
+            if (rndDefId >= 0)
+                store.setRenderingDefId(rndDefId);
+        }
+
+        return WriterImage.bytesToImage(
+                store.getThumbnail(omero.rtypes.rint(sizeX),
+                        omero.rtypes.rint(sizeY)));
+
+
+//        if (thumbPix == null) {
+//            valid = false;
+//            thumbPix = Factory.createDefaultImageThumbnail(sizeX, sizeY);
+//        }
+//        currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
+//                thumbPix, userID, valid);
+    }
+
+    /**
+     * Returns whether a pyramid should be used for the given {@link PixelsData}.
+     * This usually implies that this is a "Big image" and therefore will
+     * need tiling.
+     *
+     * @param pxd
+     * @return
+     */
+    private boolean requiresPixelsPyramid(PixelsData pxd) throws DSOutOfServiceException, ServerError {
+        int maxWidth = Integer.parseInt(getConfigService()
+                .getConfigValue("omero.pixeldata.max_plane_width"));
+        int maxHeight = Integer.parseInt(getConfigService()
+                .getConfigValue("omero.pixeldata.max_plane_height"));
+        return pxd.getSizeX() * pxd.getSizeY() > maxWidth * maxHeight;
+    }
+
     /**
      * Adds a {@link BatchCall} to the tree for each thumbnail to retrieve.
      *
@@ -284,63 +326,45 @@ public class ThumbnailLoader
             return;
         }
 
-        IConfigPrx configService = getConfigService();
-        if (configService == null) {
-            return;
-        }
-
-        for (long userID : userIDs) {
-            final ThumbnailStorePrx store = getThumbnailStore();
-            try {
-                int size = images.size() - 1;
+        try {
+            final int lastIndex = images.size() - 1;
+            for (final long userId : userIDs) {
                 int k = 0;
                 for (DataObject image : images) {
-                    final PixelsData pxd = image instanceof ImageData ?
-                            ((ImageData) image).getDefaultPixels() :
-                            (PixelsData) image;
+                    // Cast our image to pixels object
+                    final PixelsData pxd = dataObjectToPixelsData(image);
 
-                    final String description = "Loading thumbnail";
-                    final boolean last = size == k;
-                    k++;
-                    add(new BatchCall(description) {
+                    // Flag to check if we've iterated to the last image
+                    final boolean last = lastIndex == k++;
+
+                    // Create a new thumbnail store for each image
+                    ThumbnailStorePrx store = service.createThumbnailStore(ctx);
+
+                    // Add a new load thumbnail task to tree
+                    add(new BatchCall("Loading thumbnails") {
                         @Override
                         public void doCall() throws Exception {
-                            // If image has pyramids, check to see if image is ready for loading as a thumbnail.
-                            if (requiresPixelsPyramid(configService, pxd)) {
-                                //
-                                RawPixelsStorePrx rawPixelStore = context.getGateway()
-                                        .getPixelsStore(ctx);
-                                try {
-                                    rawPixelStore.setPixelsId(pxd.getId(), false);
-
-                                    loadThumbnail(pxd, userID, store, last);
-                                } catch (MissingPyramidException e) {
-                                    // Thrown if pyramid file is missing
-
-                                } catch (ResourceError e) {
-                                    // Thrown if pyramid file is corrupt
-                                    context.getLogger()
-                                            .debug(this, e.getMessage());
-
-                                    // Need to think of a code path for this
+                            super.doCall();
+                            try {
+                                // If image has pyramids, check to see if image is ready for loading as a thumbnail.
+                                if (requiresPixelsPyramid(pxd)) {
+                                    tryGetThumbnail(store, pxd, userId);
+                                } else {
+                                    loadThumbnail(store, pxd);
                                 }
-                            } else {
-                                loadThumbnail(pxd, userID, store, last);
+                            } finally {
+                                if (last) {
+                                    context.getDataService()
+                                            .closeService(ctx, store);
+                                }
                             }
                         }
                     });
                 }
-            } catch (RuntimeException r) {
-                // If we fail to pass control to loadThumbnail
-                // then we need to clean up the service.
-                if (store != null) {
-                    try {
-                        store.close();
-                    } catch (ServerError e) {
-                        context.getLogger().warn(this, "Failed to close " + store);
-                    }
-                }
             }
+        } catch (Exception e) {
+            context.getLogger().debug(this,
+                    e.getMessage());
         }
     }
 
