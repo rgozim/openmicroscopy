@@ -21,23 +21,17 @@
 
 package org.openmicroscopy.shoola.env.data.views.calls;
 
-import ome.conditions.MissingPyramidException;
 import ome.conditions.ResourceError;
-import omero.RType;
 import omero.ServerError;
 import omero.api.IConfigPrx;
-import omero.api.IQueryPrx;
 import omero.api.RawPixelsStorePrx;
 import omero.api.ThumbnailStorePrx;
 import omero.gateway.SecurityContext;
 import omero.gateway.exception.DSAccessException;
 import omero.gateway.exception.DSOutOfServiceException;
-import omero.gateway.exception.RenderingServiceException;
 import omero.gateway.model.DataObject;
 import omero.gateway.model.ImageData;
 import omero.gateway.model.PixelsData;
-import omero.sys.Parameters;
-import omero.sys.ParametersI;
 import org.openmicroscopy.shoola.env.data.OmeroImageService;
 import org.openmicroscopy.shoola.env.data.model.ThumbnailData;
 import org.openmicroscopy.shoola.env.data.views.BatchCall;
@@ -46,12 +40,13 @@ import org.openmicroscopy.shoola.util.image.geom.Factory;
 import org.openmicroscopy.shoola.util.image.io.EncoderException;
 import org.openmicroscopy.shoola.util.image.io.WriterImage;
 
-import java.awt.*;
+import javax.swing.ImageIcon;
+import java.awt.Dimension;
+import java.awt.Image;
 import java.awt.image.BufferedImage;
+import java.net.URL;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
+import java.util.Collections;
 import java.util.Set;
 
 /**
@@ -98,16 +93,6 @@ public class ThumbnailLoader
     private Object currentThumbnail;
 
     /**
-     * Flag to indicate if the class was invoked for a pixels ID.
-     */
-    private boolean pixelsCall;
-
-    /**
-     * The id of the pixels set this loader is for.
-     */
-    private long pixelsID;
-
-    /**
      * Collection of user IDs.
      */
     private Set<Long> userIDs;
@@ -118,113 +103,47 @@ public class ThumbnailLoader
     private OmeroImageService service;
 
     /**
-     * Load the thumbnail as an full size image.
-     */
-    private boolean asImage;
-
-    /**
      * The security context.
      */
     private SecurityContext ctx;
-
 
     /**
      * Use getConfigService() instead of this directly
      */
     private IConfigPrx configService;
 
+    /**
+     * Load the thumbnail as an full size image.
+     */
+    private boolean asImage = false;
+
 
     private IConfigPrx getConfigService() throws DSOutOfServiceException {
         if (configService == null) {
             configService = context.getGateway()
                     .getConfigService(ctx);
-        } else {
-            return configService;
         }
+        return configService;
     }
 
-    private void getJobState(long filesetId) throws DSOutOfServiceException, ServerError {
-        IQueryPrx querySrv = context.getGateway()
-                .getQueryService(ctx);
-
-        String query = "SELECT u " +
-                "FROM FilesetJobLink fjl, Job u, JobOriginalFileLink jol " +
-                "WHERE :id = fjl.parent.id AND fjl.child = u AND u = jol.parent " +
-                "ORDER BY u.id";
-
-        Parameters params = new ParametersI();
-        params.map = new HashMap<>();
-        params.map.put("id", omero.rtypes.rlong(filesetId));
-
-        List<List<RType>> results = querySrv.projection(query, params);
-
-        System.out.print(results.toString());
-    }
-
-
-    /**
-     * Creates a {@link BatchCall} to retrieve rendering control.
-     *
-     * @return The {@link BatchCall}.
-     */
-    private BatchCall makeBatchCall() {
-        return new BatchCall("Loading thumbnail for: " + pixelsID) {
-            public void doCall() throws Exception {
-                BufferedImage thumbPix = null;
-                try {
-                    thumbPix = service.getThumbnail(ctx, pixelsID, maxWidth,
-                            maxHeight, -1);
-
-                } catch (RenderingServiceException e) {
-                    context.getLogger().error(this,
-                            "Cannot retrieve thumbnail from ID: " +
-                                    e.getExtendedMessage());
-                }
-                if (thumbPix == null)
-                    thumbPix = Factory.createDefaultImageThumbnail(-1);
-                currentThumbnail = thumbPix;
-            }
-        };
-    }
-
-    private void handleBatchCall(IConfigPrx configService, DataObject image, long userId, boolean last) throws Exception {
-        PixelsData pxd = image instanceof ImageData ?
-                ((ImageData) image).getDefaultPixels() :
-                (PixelsData) image;
-
+    private void handleBatchCall(ThumbnailStorePrx store, PixelsData pxd, long userId) throws Exception {
         // If image has pyramids, check to see if image is ready for loading as a thumbnail.
-        if (requiresPixelsPyramid(configService, pxd)) {
-            RawPixelsStorePrx rawPixelStore = context.getGateway()
-                    .getPixelsStore(ctx);
-            try {
-                // This method will throw if there is an issue with the pyramid
-                // generation (i.e. it's not finished, corrupt)
-                rawPixelStore.setPixelsId(pxd.getId(), false);
-
-                // If we get here, load the thumbnail
-                loadThumbnail(pxd, userId);
-            } catch (MissingPyramidException e) {
-                ThumbnailStorePrx store = getThumbnailStore();
-
-                // Thrown if pyramid file is missing
-                // create and show a loading symbol
-                currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
-                        store, userId, valid);
-
-            } catch (ResourceError e) {
-                // Thrown if pyramid file is corrupt
-                context.getLogger()
-                        .debug(this, e.getMessage());
-
-                // Need to think of a code path for this
+        try {
+            Image thumbnail;
+            if (requiresPixelsPyramid(pxd)) {
+                thumbnail = tryGetThumbnail(store, pxd, userId);
+            } else {
+                thumbnail = loadThumbnail(store, pxd, userId);
             }
-        } else {
-            loadThumbnail(pxd, userId);
+
+
+            // Convert thumbnail to whatever
+            currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
+                    thumbnail, userId, true);
+        } catch (Exception e) {
+            context.getLogger().error(this, e.getMessage());
         }
 
-        if (last) {
-            context.getDataService().closeService(ctx, store);
-        }
     }
 
     PixelsData dataObjectToPixelsData(DataObject image) {
@@ -233,24 +152,27 @@ public class ThumbnailLoader
                 (PixelsData) image;
     }
 
-    java.awt.Image tryGetThumbnail(ThumbnailStorePrx thumbStore, PixelsData pxd, long userId)
-            throws ResourceError, DSOutOfServiceException, ServerError {
-        try {
-            RawPixelsStorePrx rawPixelStore = context.getGateway()
-                    .getPixelsStore(ctx);
+    Image tryGetThumbnail(ThumbnailStorePrx thumbStore, PixelsData pxd, long userId)
+            throws DSOutOfServiceException, ServerError, DSAccessException, EncoderException {
+        RawPixelsStorePrx rawPixelStore = context.getGateway()
+                .getPixelsStore(ctx);
 
+        try {
             // This method will throw if there is an issue with the pyramid
             // generation (i.e. it's not finished, corrupt)
             rawPixelStore.setPixelsId(pxd.getId(), false);
-
-            // If we get here, load the thumbnail
-            return loadThumbnail(thumbStore, pxd, userId);
-        } catch (MissingPyramidException e) {
+        } catch (omero.MissingPyramidException e) {
             // Thrown if pyramid file is missing
-            // create and show a loading symbol
-            return Toolkit.getDefaultToolkit()
-                    .getImage("ajax-loader.gif");
+            // create and show a loading .symbol
+            return Factory.createDefaultThumbnail("Loading");
+        } catch (ResourceError e) {
+            context.getLogger().error(this, "Error getting pyramid from server," +
+                    " it might be corrupt");
+            return Factory.createDefaultThumbnail("Error");
         }
+
+        // If we get here, load the thumbnail
+        return loadThumbnail(thumbStore, pxd, userId);
     }
 
     /**
@@ -261,7 +183,7 @@ public class ThumbnailLoader
      * @param store  The thumbnail store to use.
      */
     private BufferedImage loadThumbnail(ThumbnailStorePrx store, PixelsData pxd, long userId)
-            throws ServerError, EncoderException, DSAccessException, DSOutOfServiceException {
+            throws ServerError, DSAccessException, DSOutOfServiceException, EncoderException {
         int sizeX = maxWidth, sizeY = maxHeight;
         if (asImage) {
             sizeX = pxd.getSizeX();
@@ -289,14 +211,6 @@ public class ThumbnailLoader
         return WriterImage.bytesToImage(
                 store.getThumbnail(omero.rtypes.rint(sizeX),
                         omero.rtypes.rint(sizeY)));
-
-
-//        if (thumbPix == null) {
-//            valid = false;
-//            thumbPix = Factory.createDefaultImageThumbnail(sizeX, sizeY);
-//        }
-//        currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
-//                thumbPix, userID, valid);
     }
 
     /**
@@ -320,51 +234,35 @@ public class ThumbnailLoader
      *
      * @see BatchCallTree#buildTree()
      */
+    @Override
     protected void buildTree() {
-        if (pixelsCall) {
-            add(makeBatchCall());
-            return;
-        }
+        final int lastIndex = images.size() - 1;
+        for (final long userId : userIDs) {
+            int k = 0;
+            for (DataObject image : images) {
+                // Cast our image to pixels object
+                final PixelsData pxd = dataObjectToPixelsData(image);
 
-        try {
-            final int lastIndex = images.size() - 1;
-            for (final long userId : userIDs) {
-                int k = 0;
-                for (DataObject image : images) {
-                    // Cast our image to pixels object
-                    final PixelsData pxd = dataObjectToPixelsData(image);
+                // Flag to check if we've iterated to the last image
+                final boolean last = lastIndex == k++;
 
-                    // Flag to check if we've iterated to the last image
-                    final boolean last = lastIndex == k++;
-
-                    // Create a new thumbnail store for each image
-                    ThumbnailStorePrx store = service.createThumbnailStore(ctx);
-
-                    // Add a new load thumbnail task to tree
-                    add(new BatchCall("Loading thumbnails") {
-                        @Override
-                        public void doCall() throws Exception {
-                            super.doCall();
-                            try {
-                                // If image has pyramids, check to see if image is ready for loading as a thumbnail.
-                                if (requiresPixelsPyramid(pxd)) {
-                                    tryGetThumbnail(store, pxd, userId);
-                                } else {
-                                    loadThumbnail(store, pxd);
-                                }
-                            } finally {
-                                if (last) {
-                                    context.getDataService()
-                                            .closeService(ctx, store);
-                                }
+                // Add a new load thumbnail task to tree
+                add(new BatchCall("Loading thumbnails") {
+                    @Override
+                    public void doCall() throws Exception {
+                        super.doCall();
+                        ThumbnailStorePrx store = service.createThumbnailStore(ctx);
+                        try {
+                            handleBatchCall(store, pxd, userId);
+                        } finally {
+                            if (last) {
+                                context.getDataService()
+                                        .closeService(ctx, store);
                             }
                         }
-                    });
-                }
+                    }
+                });
             }
-        } catch (Exception e) {
-            context.getLogger().debug(this,
-                    e.getMessage());
         }
     }
 
@@ -386,6 +284,7 @@ public class ThumbnailLoader
      *
      * @see BatchCallTree#getResult()
      */
+    @Override
     protected Object getResult() {
         return currentThumbnail;
     }
@@ -396,29 +295,35 @@ public class ThumbnailLoader
      * early and in the caller's thread.
      *
      * @param ctx       The security context.
-     * @param imgs      Contains {@link DataObject}s, one
-     *                  for each thumbnail to retrieve.
+     * @param images    Contains {@link DataObject}s, one for each thumbnail to  retrieve.
+     * @param userIDs   The users the thumbnails are for.
      * @param maxWidth  The maximum acceptable width of the thumbnails.
      * @param maxHeight The maximum acceptable height of the thumbnails.
-     * @param userIDs   The users the thumbnail are for.
      */
-    public ThumbnailLoader(SecurityContext ctx, Set<DataObject> imgs,
-                           int maxWidth, int maxHeight, Set<Long> userIDs) {
-        if (imgs == null) throw new NullPointerException("No images.");
-        if (maxWidth <= 0)
+    public ThumbnailLoader(SecurityContext ctx, Collection<DataObject> images, Set<Long> userIDs,
+                           int maxWidth, int maxHeight) {
+        if (images == null || images.isEmpty()) {
+            throw new NullPointerException("No images.");
+        }
+
+        if (maxWidth <= 0) {
             throw new IllegalArgumentException(
                     "Non-positive width: " + maxWidth + ".");
-        if (maxHeight <= 0)
+        }
+
+        if (maxHeight <= 0) {
             throw new IllegalArgumentException(
                     "Non-positive height: " + maxHeight + ".");
-        this.ctx = ctx;
+        }
+
+        this.images = images;
         this.maxWidth = maxWidth;
         this.maxHeight = maxHeight;
-        images = imgs;
         this.userIDs = userIDs;
-        asImage = false;
-        service = context.getImageService();
+        this.ctx = ctx;
+        this.service = context.getImageService();
     }
+
 
     /**
      * Creates a new instance.
@@ -430,46 +335,14 @@ public class ThumbnailLoader
      *               retrieve.
      * @param userID The user the thumbnail are for.
      */
-    public ThumbnailLoader(SecurityContext ctx, Collection<DataObject> imgs,
-                           long userID) {
-        if (imgs == null) throw new NullPointerException("No images.");
-        this.ctx = ctx;
-        asImage = true;
-        images = imgs;
-        userIDs = new HashSet<Long>(1);
-        userIDs.add(userID);
-        service = context.getImageService();
+    public ThumbnailLoader(SecurityContext ctx, Collection<DataObject> imgs, long userID) {
+        this(ctx, imgs, Collections.singleton(userID), 0, 0);
+        this.asImage = true;
     }
 
-    /**
-     * Creates a new instance.
-     * If bad arguments are passed, we throw a runtime exception so to fail
-     * early and in the caller's thread.
-     *
-     * @param ctx       The security context.
-     * @param imgs      Contains {@link DataObject}s, one for each thumbnail to
-     *                  retrieve.
-     * @param maxWidth  The maximum acceptable width of the thumbnails.
-     * @param maxHeight The maximum acceptable height of the thumbnails.
-     * @param userID    The user the thumbnail are for.
-     */
-    public ThumbnailLoader(SecurityContext ctx, Collection<DataObject> imgs,
-                           int maxWidth, int maxHeight, long userID) {
-        if (imgs == null) throw new NullPointerException("No images.");
-        if (maxWidth <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive width: " + maxWidth + ".");
-        if (maxHeight <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive height: " + maxHeight + ".");
-        this.ctx = ctx;
-        this.maxWidth = maxWidth;
-        this.maxHeight = maxHeight;
-        images = imgs;
-        userIDs = new HashSet<Long>(1);
-        userIDs.add(userID);
-        asImage = false;
-        service = context.getImageService();
+    public ThumbnailLoader(SecurityContext ctx, Collection<DataObject> imgs, long userID,
+                           int maxWidth, int maxHeight) {
+        this(ctx, imgs, Collections.singleton(userID), maxWidth, maxHeight);
     }
 
     /**
@@ -479,90 +352,29 @@ public class ThumbnailLoader
      *
      * @param ctx       The security context.
      * @param image     The {@link ImageData}, the thumbnail
-     * @param maxWidth  The maximum acceptable width of the thumbnails.
-     * @param maxHeight The maximum acceptable height of the thumbnails.
-     * @param userID    The user the thumbnails are for.
-     */
-    public ThumbnailLoader(SecurityContext ctx, ImageData image, int maxWidth,
-                           int maxHeight, long userID) {
-        if (image == null) throw new IllegalArgumentException("No image.");
-        if (maxWidth <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive width: " + maxWidth + ".");
-        if (maxHeight <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive height: " + maxHeight + ".");
-        this.ctx = ctx;
-        userIDs = new HashSet<Long>(1);
-        userIDs.add(userID);
-        images = new HashSet<DataObject>(1);
-        images.add(image);
-        this.maxWidth = maxWidth;
-        this.maxHeight = maxHeight;
-        asImage = false;
-        service = context.getImageService();
-    }
-
-    /**
-     * Creates a new instance.
-     * If bad arguments are passed, we throw a runtime exception so to fail
-     * early and in the caller's thread.
-     *
-     * @param ctx       The security context.
-     * @param pixelsID  The id of the pixel set.
-     * @param maxWidth  The m aximum acceptable width of the thumbnails.
-     * @param maxHeight The maximum acceptable height of the thumbnails.
-     * @param userID    The user the thumbnail are for.
-     */
-    public ThumbnailLoader(SecurityContext ctx, long pixelsID, int maxWidth,
-                           int maxHeight, long userID) {
-        if (maxWidth <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive id: " + pixelsID + ".");
-        if (maxWidth <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive width: " + maxWidth + ".");
-        if (maxHeight <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive height: " + maxHeight + ".");
-        this.ctx = ctx;
-        pixelsCall = true;
-        this.maxWidth = maxWidth;
-        this.maxHeight = maxHeight;
-        this.pixelsID = pixelsID;
-        userIDs = new HashSet<Long>(1);
-        userIDs.add(userID);
-        service = context.getImageService();
-    }
-
-    /**
-     * Creates a new instance.
-     * If bad arguments are passed, we throw a runtime exception so to fail
-     * early and in the caller's thread.
-     *
-     * @param ctx       The security context.
-     * @param image     The {@link ImageData}, the thumbnail
-     * @param maxWidth  The maximum acceptable width of the thumbnails.
-     * @param maxHeight The maximum acceptable height of the thumbnails.
      * @param userIDs   The users the thumbnail are for.
+     * @param maxWidth  The maximum acceptable width of the thumbnails.
+     * @param maxHeight The maximum acceptable height of the thumbnails.
      */
-    public ThumbnailLoader(SecurityContext ctx, ImageData image, int maxWidth,
-                           int maxHeight, Set<Long> userIDs) {
-        if (image == null) throw new IllegalArgumentException("No image.");
-        if (maxWidth <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive width: " + maxWidth + ".");
-        if (maxHeight <= 0)
-            throw new IllegalArgumentException(
-                    "Non-positive height: " + maxHeight + ".");
-        this.ctx = ctx;
-        images = new HashSet<DataObject>(1);
-        images.add(image);
-        this.maxWidth = maxWidth;
-        this.maxHeight = maxHeight;
-        this.userIDs = userIDs;
-        asImage = false;
-        service = context.getImageService();
+    public ThumbnailLoader(SecurityContext ctx, ImageData image, Set<Long> userIDs, int maxWidth,
+                           int maxHeight) {
+        this(ctx, Collections.singleton(image), userIDs, maxWidth, maxHeight);
+    }
+
+    /**
+     * Creates a new instance.
+     * If bad arguments are passed, we throw a runtime exception so to fail
+     * early and in the caller's thread.
+     *
+     * @param ctx       The security context.
+     * @param image     The {@link ImageData}, the thumbnail
+     * @param userId    The user the thumbnails are for.
+     * @param maxWidth  The maximum acceptable width of the thumbnails.
+     * @param maxHeight The maximum acceptable height of the thumbnails.
+     */
+    public ThumbnailLoader(SecurityContext ctx, ImageData image, long userId, int maxWidth,
+                           int maxHeight) {
+        this(ctx, Collections.singleton(image), Collections.singleton(userId), maxWidth, maxHeight);
     }
 
 }

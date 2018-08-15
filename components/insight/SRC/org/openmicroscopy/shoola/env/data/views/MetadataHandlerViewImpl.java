@@ -91,8 +91,8 @@ class MetadataHandlerViewImpl
 		Set<Long> userIDs, int thumbWidth, int thumbHeight, 
 		AgentEventListener observer)
 	{
-		BatchCallTree cmd = new ThumbnailLoader(ctx, image, thumbWidth,
-				thumbHeight, userIDs);
+		BatchCallTree cmd = new ThumbnailLoader(ctx, image, userIDs, thumbWidth,
+				thumbHeight);
 		return cmd.exec(observer);
 	}
 
