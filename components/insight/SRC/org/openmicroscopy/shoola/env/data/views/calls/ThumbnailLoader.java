@@ -40,11 +40,9 @@ import org.openmicroscopy.shoola.util.image.geom.Factory;
 import org.openmicroscopy.shoola.util.image.io.EncoderException;
 import org.openmicroscopy.shoola.util.image.io.WriterImage;
 
-import javax.swing.ImageIcon;
 import java.awt.Dimension;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
-import java.net.URL;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
@@ -135,24 +133,21 @@ public class ThumbnailLoader
             } else {
                 thumbnail = loadThumbnail(store, pxd, userId);
             }
-
-
             // Convert thumbnail to whatever
             currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
                     thumbnail, userId, true);
         } catch (Exception e) {
             context.getLogger().error(this, e.getMessage());
         }
-
     }
 
-    PixelsData dataObjectToPixelsData(DataObject image) {
+    private PixelsData dataObjectToPixelsData(DataObject image) {
         return image instanceof ImageData ?
                 ((ImageData) image).getDefaultPixels() :
                 (PixelsData) image;
     }
 
-    Image tryGetThumbnail(ThumbnailStorePrx thumbStore, PixelsData pxd, long userId)
+    private Image tryGetThumbnail(ThumbnailStorePrx thumbStore, PixelsData pxd, long userId)
             throws DSOutOfServiceException, ServerError, DSAccessException, EncoderException {
         RawPixelsStorePrx rawPixelStore = context.getGateway()
                 .getPixelsStore(ctx);
@@ -323,7 +318,6 @@ public class ThumbnailLoader
         this.ctx = ctx;
         this.service = context.getImageService();
     }
-
 
     /**
      * Creates a new instance.
