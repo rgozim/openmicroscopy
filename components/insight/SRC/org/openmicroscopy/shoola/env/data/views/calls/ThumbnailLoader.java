@@ -194,6 +194,7 @@ public class ThumbnailLoader
             store.resetDefaults();
             store.setPixelsId(pxd.getId());
         }
+
         if (userId >= 0) {
             long rndDefId = service.getRenderingDef(ctx,
                     pxd.getId(), userId);
@@ -203,9 +204,15 @@ public class ThumbnailLoader
                 store.setRenderingDefId(rndDefId);
         }
 
-        return WriterImage.bytesToImage(
-                store.getThumbnail(omero.rtypes.rint(sizeX),
-                        omero.rtypes.rint(sizeY)));
+        byte[] data = store.getThumbnail(omero.rtypes.rint(sizeX),
+                omero.rtypes.rint(sizeY));
+        if (data == null || data.length == 0) {
+            // If the thumbnail data is null or empty, we can assume that
+            // the thumbnail hasn't been generated yet and it's still in progress.
+            return Factory.createDefaultThumbnail("Loading");
+        }
+
+        return WriterImage.bytesToImage(data);
     }
 
     /**
