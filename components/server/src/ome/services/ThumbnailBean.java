@@ -1083,7 +1083,7 @@ public class ThumbnailBean extends AbstractLevel2Service
         try {
             ctx.loadAndPrepareMetadata(pixelsIds, dimensions);
             thumbnailMetadata = ctx.getMetadata(pixelsId);
-            value = retrieveThumbnail(rewriteMetadata);
+            value = retrieveThumbnailSimple();
             if (dirtyMetadata) {
                 try {
                     iUpdate.saveObject(thumbnailMetadata);
@@ -1124,7 +1124,7 @@ public class ThumbnailBean extends AbstractLevel2Service
         return thumbnail;
     }
 
-    private byte[] retrieveThumbnail() throws IOException {
+    private byte[] retrieveThumbnailSimple() throws IOException {
         boolean cached = ctx.isThumbnailCached(pixels.getId());
         if (cached) {
             if (log.isDebugEnabled()) {
@@ -1153,7 +1153,7 @@ public class ThumbnailBean extends AbstractLevel2Service
         }
 
         try {
-            byte[] thumbnail = retrieveThumbnail();
+            byte[] thumbnail = retrieveThumbnailSimple();
             //Thumbnails are always saved to disk and then retrieved when the
             //call stack includes retrieveThumbnail(). This includes the "clock".
             //inProgress is not set early enough for retrieveThumbnailDirect()
