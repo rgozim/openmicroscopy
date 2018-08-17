@@ -37,12 +37,10 @@ import org.openmicroscopy.shoola.env.data.model.ThumbnailData;
 import org.openmicroscopy.shoola.env.data.views.BatchCall;
 import org.openmicroscopy.shoola.env.data.views.BatchCallTree;
 import org.openmicroscopy.shoola.util.image.geom.Factory;
-import org.openmicroscopy.shoola.util.image.io.EncoderException;
 import org.openmicroscopy.shoola.util.image.io.WriterImage;
 
 import java.awt.Dimension;
 import java.awt.Image;
-import java.awt.image.BufferedImage;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
@@ -124,14 +122,20 @@ public class ThumbnailLoader
         return configService;
     }
 
-    private void handleBatchCall(ThumbnailStorePrx store, PixelsData pxd, long userId) throws Exception {
+    private void handleBatchCall(ThumbnailStorePrx store, PixelsData pxd, long userId) {
         // If image has pyramids, check to see if image is ready for loading as a thumbnail.
         try {
             Image thumbnail;
-            if (requiresPixelsPyramid(pxd)) {
-                thumbnail = tryGetThumbnail(store, pxd, userId);
+            byte[] thumbnailData = loadThumbnail(store, pxd, userId);
+            if (thumbnailData == null || thumbnailData.length == 0) {
+                // Find out why the thumbnail is not ready on the server
+                if (requiresPixelsPyramid(pxd)) {
+                    thumbnail = determineThumbnailState(pxd);
+                } else {
+                    thumbnail = Factory.createDefaultThumbnail("Loading");
+                }
             } else {
-                thumbnail = loadThumbnail(store, pxd, userId);
+                thumbnail = WriterImage.bytesToImage(thumbnailData);
             }
             // Convert thumbnail to whatever
             currentThumbnail = new ThumbnailData(pxd.getImage().getId(),
@@ -147,11 +151,10 @@ public class ThumbnailLoader
                 (PixelsData) image;
     }
 
-    private Image tryGetThumbnail(ThumbnailStorePrx thumbStore, PixelsData pxd, long userId)
-            throws DSOutOfServiceException, ServerError, DSAccessException, EncoderException {
+    private Image determineThumbnailState(PixelsData pxd)
+            throws DSOutOfServiceException, ServerError {
         RawPixelsStorePrx rawPixelStore = context.getGateway()
                 .getPixelsStore(ctx);
-
         try {
             // This method will throw if there is an issue with the pyramid
             // generation (i.e. it's not finished, corrupt)
@@ -163,11 +166,8 @@ public class ThumbnailLoader
         } catch (ResourceError e) {
             context.getLogger().error(this, "Error getting pyramid from server," +
                     " it might be corrupt");
-            return Factory.createDefaultThumbnail("Error");
         }
-
-        // If we get here, load the thumbnail
-        return loadThumbnail(thumbStore, pxd, userId);
+        return Factory.createDefaultThumbnail("Error");
     }
 
     /**
@@ -177,8 +177,8 @@ public class ThumbnailLoader
      * @param userId The id of the user the thumbnail is for.
      * @param store  The thumbnail store to use.
      */
-    private BufferedImage loadThumbnail(ThumbnailStorePrx store, PixelsData pxd, long userId)
-            throws ServerError, DSAccessException, DSOutOfServiceException, EncoderException {
+    private byte[] loadThumbnail(ThumbnailStorePrx store, PixelsData pxd, long userId)
+            throws ServerError, DSAccessException, DSOutOfServiceException {
         int sizeX = maxWidth, sizeY = maxHeight;
         if (asImage) {
             sizeX = pxd.getSizeX();
@@ -204,15 +204,8 @@ public class ThumbnailLoader
                 store.setRenderingDefId(rndDefId);
         }
 
-        byte[] data = store.getThumbnail(omero.rtypes.rint(sizeX),
+        return store.getThumbnail(omero.rtypes.rint(sizeX),
                 omero.rtypes.rint(sizeY));
-        if (data == null || data.length == 0) {
-            // If the thumbnail data is null or empty, we can assume that
-            // the thumbnail hasn't been generated yet and it's still in progress.
-            return Factory.createDefaultThumbnail("Loading");
-        }
-
-        return WriterImage.bytesToImage(data);
     }
 
     /**

@@ -81,7 +81,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Transactional(readOnly = true)
 public class ThumbnailBean extends AbstractLevel2Service
-    implements ApplicationContextAware, ThumbnailStore, Serializable
+        implements ApplicationContextAware, ThumbnailStore, Serializable
 {
     /**
      *
@@ -141,9 +141,6 @@ public class ThumbnailBean extends AbstractLevel2Service
 
     /** ID of the pixels instance that the service is currently working on. */
     private Long pixelsId;
-
-    /** In progress marker; set to true when no data is available the pixel */
-    private boolean inProgress;
 
     /** The rendering settings that the service is currently working with. */
     private RenderingDef settings;
@@ -303,7 +300,7 @@ public class ThumbnailBean extends AbstractLevel2Service
     @RolesAllowed("user")
     public boolean isInProgress()
     {
-        return inProgress;
+        return false;
     }
 
     /**
@@ -482,7 +479,7 @@ public class ThumbnailBean extends AbstractLevel2Service
      *             if there is a problem writing to disk.
      */
     private void compressThumbnailToDisk(Thumbnail thumb, BufferedImage image)
-    throws IOException {
+            throws IOException {
 
         if (diskSpaceChecking) {
             iRepositoryInfo.sanityCheckRepository();
@@ -490,11 +487,7 @@ public class ThumbnailBean extends AbstractLevel2Service
 
         FileOutputStream stream = ioService.getThumbnailOutputStream(thumb);
         try {
-            if (inProgress) {
-                compressInProgressImageToStream(thumb, stream);
-            } else {
-                compressionService.compressToStream(image, stream);
-            }
+            compressionService.compressToStream(image, stream);
         } finally {
             stream.close();
         }
@@ -585,11 +578,6 @@ public class ThumbnailBean extends AbstractLevel2Service
         // Ensure that we have a valid state for rendering
         errorIfInvalidState();
 
-        if (inProgress)
-        {
-            return null;
-        }
-
         // Retrieve our rendered data
         if (theZ == null)
             theZ = settings.getDefaultZ();
@@ -613,7 +601,7 @@ public class ThumbnailBean extends AbstractLevel2Service
                 pixelBufferSizeX = pixelBuffer.getSizeX();
                 pixelBufferSizeY = pixelBuffer.getSizeY();
                 if (pixelBufferSizeX <= thumbnailMetadata.getSizeX()
-                    || pixelBufferSizeY <= thumbnailMetadata.getSizeY())
+                        || pixelBufferSizeY <= thumbnailMetadata.getSizeY())
                 {
                     break;
                 }
@@ -686,7 +674,6 @@ public class ThumbnailBean extends AbstractLevel2Service
      */
     private void resetMetadata()
     {
-        inProgress = false;
         pixels = null;
         pixelsId = null;
         settings = null;
@@ -705,10 +692,6 @@ public class ThumbnailBean extends AbstractLevel2Service
     protected void errorIfInvalidState()
     {
         errorIfNullPixelsAndRenderingDef();
-        if (inProgress)
-        {
-            return; // No-op #5191
-        }
         if ((renderer == null && wasPassivated) || dirty)
         {
             try
@@ -717,14 +700,13 @@ public class ThumbnailBean extends AbstractLevel2Service
             }
             catch (ConcurrencyException e)
             {
-                inProgress = true;
                 log.info("ConcurrencyException on load()");
             }
         }
         else if (renderer == null)
         {
             throw new InternalException(
-            "Thumbnail service state corruption: Renderer missing.");
+                    "Thumbnail service state corruption: Renderer missing.");
         }
     }
 
@@ -739,30 +721,27 @@ public class ThumbnailBean extends AbstractLevel2Service
         if (pixels == null)
         {
             throw new ApiUsageException(
-            "Thumbnail service not ready: Pixels not set.");
+                    "Thumbnail service not ready: Pixels not set.");
         }
     }
 
     protected void errorIfNullRenderingDef()
     {
         errorIfNullPixels();
-        if (inProgress)
-        {
-            // pass. Do nothing.
-        }
-        else if (settings == null &&
-            ctx.isExtendedGraphCritical(Collections.singleton(pixelsId)))
+
+        if (settings == null &&
+                ctx.isExtendedGraphCritical(Collections.singleton(pixelsId)))
         {
             long ownerId = pixels.getDetails().getOwner().getId();
             throw new ResourceError(String.format(
                     "The owner id:%d has not viewed the Pixels set id:%d, " +
-                    "rendering settings are missing.", ownerId, pixelsId));
+                            "rendering settings are missing.", ownerId, pixelsId));
         }
         else if (settings == null)
         {
             throw new ome.conditions.InternalException(
                     "Fatal error retrieving rendering settings or settings " +
-                    "not loaded for Pixels set id:" + pixelsId);
+                            "not loaded for Pixels set id:" + pixelsId);
         }
     }
 
@@ -777,11 +756,6 @@ public class ThumbnailBean extends AbstractLevel2Service
     @Transactional(readOnly = false)
     public void createThumbnail(Integer sizeX, Integer sizeY)
     {
-        if (inProgress)
-        {
-            return;
-        }
-
         try
         {
             // Set defaults and sanity check thumbnail sizes
@@ -847,14 +821,14 @@ public class ThumbnailBean extends AbstractLevel2Service
                 if (rndOwnerId.equals(ownerId)) {
                     final Pixels unloadedPixels = new Pixels(pixels.getId(), false);
                     thumbnailMetadata.setPixels(unloadedPixels);
-                    _setMetadataVersion(thumbnailMetadata, inProgress);
+                    _setMetadataVersion(thumbnailMetadata);
                     dirtyMetadata = true;
                 } else {
                     //new one for owner of the settings.
                     final Dimension d = new Dimension(thumbnailMetadata.getSizeX(),
-                                                      thumbnailMetadata.getSizeY());
+                            thumbnailMetadata.getSizeY());
                     thumbnailMetadata = ctx.createThumbnailMetadata(pixels, d);
-                    _setMetadataVersion(thumbnailMetadata, inProgress);
+                    _setMetadataVersion(thumbnailMetadata);
                     thumbnailMetadata = iUpdate.saveAndReturnObject(thumbnailMetadata);
                     dirtyMetadata = false;
                 }
@@ -883,10 +857,10 @@ public class ThumbnailBean extends AbstractLevel2Service
         }
     }
 
-    private static void _setMetadataVersion(Thumbnail tb, boolean inProgress) {
+    private static void _setMetadataVersion(Thumbnail tb) {
         Integer version = tb.getVersion();
         if (version == null) {
-            version = inProgress ? PROGRESS_VERSION : 0;
+            version = 0;
         } else {
             version++;
         }
@@ -929,9 +903,9 @@ public class ThumbnailBean extends AbstractLevel2Service
     @RolesAllowed("user")
     @Transactional(readOnly = false)
     public void createThumbnailsByLongestSideSet(Integer size,
-            Set<Long> pixelsIds)
+                                                 Set<Long> pixelsIds)
     {
-        getThumbnailByLongestSideSet(size, pixelsIds);
+        // getThumbnailByLongestSideSet(size, pixelsIds);
     }
 
     /* (non-Javadoc)
@@ -940,107 +914,19 @@ public class ThumbnailBean extends AbstractLevel2Service
     @RolesAllowed("user")
     @Transactional(readOnly = false)
     public Map<Long, byte[]> getThumbnailSet(Integer sizeX, Integer sizeY,
-            Set<Long> pixelsIds)
+                                             Set<Long> pixelsIds)
     {
-        // Set defaults and sanity check thumbnail sizes
-        Dimension checkedDimensions = sanityCheckThumbnailSizes(sizeX, sizeY);
-
-        // Prepare our thumbnail context
-        newContext();
-        ctx.loadAndPrepareRenderingSettings(pixelsIds);
-        ctx.createAndPrepareMissingRenderingSettings(pixelsIds);
-        ctx.loadAndPrepareMetadata(pixelsIds, checkedDimensions);
-        Map<Long, byte[]> values = retrieveThumbnailSet(pixelsIds);
-        iQuery.clear();
-        return values;
+        return null;
     }
 
     @RolesAllowed("user")
     @Transactional(readOnly = false)
     public Map<Long, byte[]> getThumbnailByLongestSideSet(Integer size,
-            Set<Long> pixelsIds)
+                                                          Set<Long> pixelsIds)
     {
-        // Set defaults and sanity check thumbnail sizes
-        Dimension checkedDimensions = sanityCheckThumbnailSizes(size, size);
-        size = (int) checkedDimensions.getWidth();
-
-        // Prepare our thumbnail context
-        newContext();
-        ctx.loadAndPrepareRenderingSettings(pixelsIds);
-        ctx.createAndPrepareMissingRenderingSettings(pixelsIds);
-        ctx.loadAndPrepareMetadata(pixelsIds, size);
-        Map<Long, byte[]> values = retrieveThumbnailSet(pixelsIds);
-        iQuery.clear();
-        return values;
+        return null;
     }
 
-    /**
-     * Performs the logic of retrieving a set of thumbnails.
-     * @param pixelsIds The Pixels IDs to retrieve thumbnails for.
-     * @return Map of Pixels ID vs. thumbnail bytes.
-     */
-    private Map<Long, byte[]> retrieveThumbnailSet(Set<Long> pixelsIds)
-    {
-        // Our return value HashMap
-        final Map<Long, byte[]> toReturn = new HashMap<Long, byte[]>();
-
-        new PerGroupActor(applicationContext, iQuery, null) {
-            @Override
-            protected void actOnOneGroup(Set<Long> pixelsIds) {
-                final List<Thumbnail> toSave = new ArrayList<Thumbnail>();
-                for (final Long pixelsId : pixelsIds) {
-                    // Ensure that the renderer has been made dirty otherwise the
-                    // same renderer will be used to return all thumbnails with dirty
-                    // metadata. (See #2075).
-                    resetMetadata();
-                    try {
-                        if (!ctx.hasSettings(pixelsId)) {
-                            try {
-                                pixelDataService.getPixelBuffer(ctx.getPixels(pixelsId), false);
-                                continue;  // No exception, not an in-progress image
-                            } catch (ConcurrencyException e) {
-                                log.debug("ConcurrencyException on retrieveThumbnailSet.ctx.hasSettings: pyramid in progress");
-                                inProgress = true;
-                            }
-                        }
-                        pixels = ctx.getPixels(pixelsId);
-                        settings = ctx.getSettings(pixelsId);
-                        thumbnailMetadata = ctx.getMetadata(pixelsId);
-                        if (inProgress && !PROGRESS_VERSION.equals(thumbnailMetadata.getVersion())) {
-                            thumbnailMetadata.setVersion(PROGRESS_VERSION);
-                            dirtyMetadata = true;
-                        }
-                        try {
-                            // At this point, we're sure that we have a thumbnail obj
-                            // that we want to use, but retrieveThumbnail likes to
-                            // re-generate. For the moment, we're saving and restoring
-                            // that value to prevent creating a new one.
-                            final byte[] thumbnail = retrieveThumbnailAndUpdateMetadata(false);
-                            toReturn.put(pixelsId, thumbnail);
-                            if (dirtyMetadata) {
-                                toSave.add(thumbnailMetadata);
-                            }
-                        } finally {
-                            dirtyMetadata = false;
-                        }
-                    } catch (Throwable t) {
-                        log.warn("Retrieving thumbnail in set for " + "Pixels ID " + pixelsId + " failed.", t);
-                        toReturn.put(pixelsId, null);
-                    }
-                }
-                // We're doing the update or creation and save as a two-step
-                // process due to the possible unloaded Pixels. If we do not,
-                // Pixels will be unloaded and we will hit
-                // IllegalStateException's when checking update events.
-                iUpdate.saveArray(toSave.toArray(new Thumbnail[toSave.size()]));
-                // Ensure that we do not have "dirty" pixels or rendering settings left
-                // around in the Hibernate session cache.
-                iQuery.clear();
-                iUpdate.flush();
-            }
-        }.actOnByGroup(pixelsIds);
-        return toReturn;
-    }
 
     /*
      * (non-Javadoc)
@@ -1049,27 +935,6 @@ public class ThumbnailBean extends AbstractLevel2Service
      *      ome.model.display.RenderingDef, java.lang.Integer,
      *      java.lang.Integer)
      */
-    // @RolesAllowed("user")
-    // @Transactional(readOnly = false)
-    // public byte[] getThumbnail(Integer sizeX, Integer sizeY) {
-    //     errorIfNullPixelsAndRenderingDef();
-    //     Dimension dimensions = sanityCheckThumbnailSizes(sizeX, sizeY);
-    //     // Reloading thumbnail metadata because we don't know what may have
-    //     // happened in the database since our last method call.
-    //     Set<Long> pixelsIds = new HashSet<Long>();
-    //     pixelsIds.add(pixelsId);
-    //     byte[] value = null;
-    //     try {
-    //         ctx.loadAndPrepareMetadata(pixelsIds, dimensions);
-    //         thumbnailMetadata = ctx.getMetadata(pixelsId);
-    //         value = retrieveThumbnailAndUpdateMetadata(false);
-    //     } catch (Throwable t) {
-    //         value = handleNoThumbnail(t, dimensions);
-    //     }
-    //     iQuery.clear();//see #11072
-    //     return value;
-    // }
-
     @RolesAllowed("user")
     @Transactional(readOnly = false)
     public byte[] getThumbnail(Integer sizeX, Integer sizeY) {
@@ -1083,7 +948,7 @@ public class ThumbnailBean extends AbstractLevel2Service
         try {
             ctx.loadAndPrepareMetadata(pixelsIds, dimensions);
             thumbnailMetadata = ctx.getMetadata(pixelsId);
-            value = retrieveThumbnailSimple();
+            value = retrieveThumbnail();
             if (dirtyMetadata) {
                 try {
                     iUpdate.saveObject(thumbnailMetadata);
@@ -1091,8 +956,8 @@ public class ThumbnailBean extends AbstractLevel2Service
                     dirtyMetadata = false;
                 }
             }
-        } catch (Throwable t) {
-            value = handleNoThumbnail(t, dimensions);
+        } catch (NoThumbnail e) {
+            value = handleNoThumbnail(e, dimensions);
         }
         iQuery.clear();//see #11072
         return value;
@@ -1103,10 +968,10 @@ public class ThumbnailBean extends AbstractLevel2Service
      * thumbnail metadata.
      * @return Thumbnail bytes.
      */
-    private byte[] retrieveThumbnailAndUpdateMetadata(boolean rewriteMetadata)
+    private byte[] retrieveThumbnailAndUpdateMetadata()
     {
-        byte[] thumbnail = retrieveThumbnail(rewriteMetadata);
-        if (inProgress && !PROGRESS_VERSION.equals(thumbnailMetadata)) {
+        byte[] thumbnail = retrieveThumbnail();
+        if (PROGRESS_VERSION.equals(thumbnailMetadata)) {
             thumbnailMetadata.setVersion(PROGRESS_VERSION);
             dirtyMetadata = true;
         }
@@ -1124,63 +989,34 @@ public class ThumbnailBean extends AbstractLevel2Service
         return thumbnail;
     }
 
-    private byte[] retrieveThumbnailSimple() throws IOException {
-        boolean cached = ctx.isThumbnailCached(pixels.getId());
-        if (cached) {
-            if (log.isDebugEnabled()) {
-                log.debug("Cache hit.");
-            }
-        } else {
-            if (log.isDebugEnabled()) {
-                log.debug("Cache miss, thumbnail missing or out of date.");
-            }
-            _createThumbnail();
-        }
-        return ioService.getThumbnail(thumbnailMetadata);
-    }
-
     /**
      * Creates the thumbnail or retrieves it from cache.
      *
      * @return Thumbnail bytes.
      */
-    private byte[] retrieveThumbnail(boolean rewriteMetadata) {
-        if (inProgress) {
-            return retrieveThumbnailDirect(
-                    thumbnailMetadata.getSizeX(),
-                    thumbnailMetadata.getSizeY(),
-                    0, 0, rewriteMetadata);
-        }
-
+    private byte[] retrieveThumbnail() throws ResourceError {
         try {
-            byte[] thumbnail = retrieveThumbnailSimple();
-            //Thumbnails are always saved to disk and then retrieved when the
-            //call stack includes retrieveThumbnail(). This includes the "clock".
-            //inProgress is not set early enough for retrieveThumbnailDirect()
-            //to be called.
-            //
-            //The current implementation assumes that if an image has valid
-            //rendering settings for the current user then it will have a valid
-            //pyramid. When existing pyramids, thumbnail metadata, and cached
-            //thumbnails are deleted from disk using a method like
-            //removepyramids it invalidates this assumption.
-            //The "clock" will first be saved to disk. inProgress will then be
-            //checked and the "clock" deleted from disk after creation.
-            //The "clock" will have to be created, saved to disk, and then
-            //retrieved every time the thumbnail is requested until pyramid
-            //creation completes and the correct thumbnail can be created.
-            //Otherwise the "clock" would stay as the cached thumbnail until
-            //the valid rendering settings for the current user are modified.
-            if (inProgress) {
-                ioService.removeThumbnails(
-                        Arrays.asList(thumbnailMetadata.getId()));
+            boolean cached = ctx.isThumbnailCached(pixels.getId());
+            if (cached) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Cache hit.");
+                }
+            } else {
+                if (log.isDebugEnabled()) {
+                    log.debug("Cache miss, thumbnail missing or out of date.");
+                }
+                // Trigger a thumbnail creation event async
+                // and return empty array for the time being
+                return new byte[0];
+                //_createThumbnail();
             }
-            return thumbnail;
+            return ioService.getThumbnail(thumbnailMetadata);
         } catch (IOException e) {
             log.error("Could not obtain thumbnail", e);
             throw new ResourceError(e.getMessage());
         }
     }
+
 
     /*
      * (non-Javadoc)
@@ -1203,7 +1039,7 @@ public class ThumbnailBean extends AbstractLevel2Service
         try {
             ctx.loadAndPrepareMetadata(pixelsIds, size);
             thumbnailMetadata = ctx.getMetadata(pixelsId);
-            value = retrieveThumbnailAndUpdateMetadata(false);
+            value = retrieveThumbnailAndUpdateMetadata();
         } catch (Throwable t) {
             value = handleNoThumbnail(t, dimensions);
         }
@@ -1224,9 +1060,9 @@ public class ThumbnailBean extends AbstractLevel2Service
         // Leaving rewriteMetadata here true since it's unclear of what the
         // expected state of the bean should be.
         byte[] value = retrieveThumbnailDirect(sizeX, sizeY, null, null, true);
-    	// Ensure that we do not have "dirty" pixels or rendering settings
+        // Ensure that we do not have "dirty" pixels or rendering settings
         // left around in the Hibernate session cache.
-    	iQuery.clear();
+        iQuery.clear();
         return value;
     }
 
@@ -1240,7 +1076,7 @@ public class ThumbnailBean extends AbstractLevel2Service
      * @return
      */
     private byte[] retrieveThumbnailDirect(Integer sizeX, Integer sizeY,
-            Integer theZ, Integer theT, boolean rewriteMetadata)
+                                           Integer theZ, Integer theT, boolean rewriteMetadata)
     {
         errorIfNullPixelsAndRenderingDef();
         // Set defaults and sanity check thumbnail sizes
@@ -1253,13 +1089,8 @@ public class ThumbnailBean extends AbstractLevel2Service
         BufferedImage image = createScaledImage(theZ, theT);
         ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
         try {
-            if (inProgress) {
-                compressInProgressImageToStream(local, byteStream);
-            } else {
-                compressionService.compressToStream(image, byteStream);
-            }
-            byte[] thumbnail = byteStream.toByteArray();
-            return thumbnail;
+            compressionService.compressToStream(image, byteStream);
+            return byteStream.toByteArray();
         } catch (IOException e) {
             log.error("Could not obtain thumbnail direct.", e);
             throw new ResourceError(e.getMessage());
@@ -1278,11 +1109,11 @@ public class ThumbnailBean extends AbstractLevel2Service
      */
     @RolesAllowed("user")
     public byte[] getThumbnailForSectionDirect(int theZ, int theT,
-            Integer sizeX, Integer sizeY)
+                                               Integer sizeX, Integer sizeY)
     {
         // As getThumbnailDirect
         byte[] value = retrieveThumbnailDirect(sizeX, sizeY, theZ, theT, true);
-     // Ensure that we do not have "dirty" pixels or rendering settings
+        // Ensure that we do not have "dirty" pixels or rendering settings
         // left around in the Hibernate session cache.
         iQuery.clear();
         return value;
@@ -1290,7 +1121,7 @@ public class ThumbnailBean extends AbstractLevel2Service
 
     /** Actually does the work specified by {@link getThumbnailByLongestSideDirect()}.*/
     private byte[] _getThumbnailByLongestSideDirect(Integer size, Integer theZ,
-            Integer theT, boolean rewriteMetadata)
+                                                    Integer theT, boolean rewriteMetadata)
     {
         // Sanity check thumbnail sizes
         Dimension dimensions = sanityCheckThumbnailSizes(size, size);
@@ -1324,7 +1155,7 @@ public class ThumbnailBean extends AbstractLevel2Service
      */
     @RolesAllowed("user")
     public byte[] getThumbnailForSectionByLongestSideDirect(int theZ, int theT,
-            Integer size)
+                                                            Integer size)
     {
         errorIfNullPixelsAndRenderingDef();
         // Ensure that we do not have "dirty" pixels or rendering settings
@@ -1348,13 +1179,8 @@ public class ThumbnailBean extends AbstractLevel2Service
     public boolean thumbnailExists(Integer sizeX, Integer sizeY) {
         // Set defaults and sanity check thumbnail sizes
         errorIfNullPixelsAndRenderingDef();
-        if (inProgress)
-        {
-            return false;
-        }
 
         Dimension dimensions = sanityCheckThumbnailSizes(sizeX, sizeY);
-
         Set<Long> pixelsIds = new HashSet<Long>();
         pixelsIds.add(pixelsId);
         ctx.loadAndPrepareMetadata(pixelsIds, dimensions, false);
@@ -1369,11 +1195,11 @@ public class ThumbnailBean extends AbstractLevel2Service
     public void resetDefaults()
     {
         if (settings == null
-            && ctx.isExtendedGraphCritical(Collections.singleton(pixelsId)))
+                && ctx.isExtendedGraphCritical(Collections.singleton(pixelsId)))
         {
             throw new ApiUsageException(
                     "Unable to reset rendering settings in a read-only group " +
-                    "for Pixels set id:" + pixelsId);
+                            "for Pixels set id:" + pixelsId);
         }
         _resetDefaults();
         iUpdate.flush();
@@ -1391,15 +1217,15 @@ public class ThumbnailBean extends AbstractLevel2Service
         params.addId(pixels.getId());
         params.addLong("o_id", sec.getEffectiveUID());
         if (settings != null
-            || iQuery.findByQuery(
-                    "from RenderingDef as r where r.pixels.id = :id and " +
-                    "r.details.owner.id = :o_id", params) != null)
+                || iQuery.findByQuery(
+                "from RenderingDef as r where r.pixels.id = :id and " +
+                        "r.details.owner.id = :o_id", params) != null)
         {
             throw new ApiUsageException(
                     "The thumbnail service only resets **empty** rendering " +
-                    "settings. Resetting of existing settings should either " +
-                    "be performed using the RenderingEngine or " +
-                    "IRenderingSettings.");
+                            "settings. Resetting of existing settings should either " +
+                            "be performed using the RenderingEngine or " +
+                            "IRenderingSettings.");
         }
 
         RenderingDef def = settingsService.createNewRenderingDef(pixels);
@@ -1409,7 +1235,6 @@ public class ThumbnailBean extends AbstractLevel2Service
         }
         catch (ConcurrencyException mpe)
         {
-            inProgress = true;
             log.info("ConcurrencyException on settingsSerice.resetDefaults");
         }
     }
@@ -1433,7 +1258,7 @@ public class ThumbnailBean extends AbstractLevel2Service
             log.debug("Calling retrieveThumbnailDirect on missing thumbnail");
             // As getThumbnailDirect
             return retrieveThumbnailDirect((int) dimensions.getWidth(),
-                (int) dimensions.getHeight(), null, null, true);
+                    (int) dimensions.getHeight(), null, null, true);
         } else if (t instanceof RuntimeException) {
             throw (RuntimeException) t;
         } else {
