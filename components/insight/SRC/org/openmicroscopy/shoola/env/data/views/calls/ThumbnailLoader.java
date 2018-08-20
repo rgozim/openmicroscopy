@@ -32,6 +32,7 @@ import omero.gateway.exception.DSOutOfServiceException;
 import omero.gateway.model.DataObject;
 import omero.gateway.model.ImageData;
 import omero.gateway.model.PixelsData;
+import omero.log.LogMessage;
 import org.openmicroscopy.shoola.env.data.OmeroImageService;
 import org.openmicroscopy.shoola.env.data.model.ThumbnailData;
 import org.openmicroscopy.shoola.env.data.views.BatchCall;
@@ -164,8 +165,8 @@ public class ThumbnailLoader
             // create and show a loading .symbol
             return Factory.createDefaultThumbnail("Loading");
         } catch (ResourceError e) {
-            context.getLogger().error(this, "Error getting pyramid from server," +
-                    " it might be corrupt");
+            context.getLogger().error(this, new LogMessage("Error getting pyramid from server," +
+                    " it might be corrupt", e));
         }
         return Factory.createDefaultThumbnail("Error");
     }
