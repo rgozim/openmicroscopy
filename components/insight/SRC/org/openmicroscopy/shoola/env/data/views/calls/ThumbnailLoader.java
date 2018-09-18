@@ -300,8 +300,8 @@ public class ThumbnailLoader extends BatchCallTree {
             DSOutOfServiceException, ServerError {
         ThumbnailStorePrx store = service.createThumbnailStore(ctx);
         if (!store.setPixelsId(pxd.getId())) {
-            store.resetDefaults();
-            store.setPixelsId(pxd.getId());
+            //store.resetDefaults();
+            //store.setPixelsId(pxd.getId());
         }
         return store;
     }

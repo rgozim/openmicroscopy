@@ -585,6 +585,20 @@ public class ThumbnailBean extends AbstractLevel2Service
         return new Dimension(sizeX, sizeY);
     }
 
+    private Renderer createRenderer(Pixels pixels, RenderingDef settings) {
+        Pixels _pixels = iPixels.retrievePixDescription(pixels.getId());
+        RenderingDef _settings = iPixels.loadRndSettings(settings.getId());
+
+        List<Family> families = getFamilies();
+        List<RenderingModel> renderingModels = getRenderingModels();
+        QuantumFactory quantumFactory = new QuantumFactory(families);
+
+        // Loading last to try to ensure that the buffer will get closed.
+        PixelBuffer buffer = pixelDataService.getPixelBuffer(_pixels, false);
+        return new Renderer(quantumFactory, renderingModels, _pixels,
+                _settings, buffer, lutProvider);
+    }
+
     /**
      * Creates a scaled buffered image from the active pixels set.
      *
@@ -594,15 +608,18 @@ public class ThumbnailBean extends AbstractLevel2Service
      * <pre>null</pre> signifies the rendering engine default.
      * @return a scaled buffered image.
      */
-    private BufferedImage createScaledImage(Integer theZ, Integer theT)
+    private BufferedImage createScaledImage(Pixels pix, Thumbnail thumbnailMetadata, Integer theZ, Integer theT)
     {
-        // Ensure that we have a valid state for rendering
-        errorIfInvalidState();
-
-        if (inProgress)
-        {
+        Renderer renderer;
+        try {
+            renderer = createRenderer(pix, settings);
+        } catch (ConcurrencyException e) {
+            inProgress = true;
+            log.info("ConcurrencyException on load()");
             return null;
         }
+
+        RenderingDef settings = renderer.getRenderingDef();
 
         // Retrieve our rendered data
         if (theZ == null)
@@ -613,8 +630,8 @@ public class ThumbnailBean extends AbstractLevel2Service
         pd.setZ(theZ);
         // Use a resolution level that matches our requested size if we can
         PixelBuffer pixelBuffer = renderer.getPixels();
-        int originalSizeX = pixels.getSizeX();
-        int originalSizeY = pixels.getSizeY();
+        int originalSizeX = pix.getSizeX();
+        int originalSizeY = pix.getSizeY();
         int pixelBufferSizeX = pixelBuffer.getSizeX();
         int pixelBufferSizeY = pixelBuffer.getSizeY();
         if (pixelBuffer.getResolutionLevels() > 1)
@@ -902,7 +919,7 @@ public class ThumbnailBean extends AbstractLevel2Service
         // thumbnail for the first time and the Thumbnail object has just been
         // created upstream of us.
 
-        BufferedImage image = createScaledImage(null, null);
+        BufferedImage image = createScaledImage(pixels, thumbMetaData, null, null);
         try {
             compressThumbnailToDisk(thumbMetaData, image, inProgress);
             s1.stop();
@@ -1110,7 +1127,7 @@ public class ThumbnailBean extends AbstractLevel2Service
     @RolesAllowed("user")
     @Transactional(readOnly = false)
     public byte[] getThumbnailWithoutDefault(Integer sizeX, Integer sizeY) {
-        errorIfNullPixelsAndRenderingDef();
+        errorIfNullPixels();
         Dimension dimensions = sanityCheckThumbnailSizes(sizeX, sizeY);
         Set<Long> pixelsIds = Collections.singleton(pixelsId);
         ctx.loadAndPrepareMetadata(pixelsIds, dimensions);
