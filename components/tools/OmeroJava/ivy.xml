@@ -30,7 +30,8 @@
   </publications>
   <dependencies>
     <!-- Internal -->
-    <dependency org="omero" name="blitz" rev="${omero.version}" changing="true" conf="build->build"/>
+    <dependency org="org.openmicroscopy" name="omero-blitz" rev="5.5.0-SNAPSHOT"/>
+    <!-- <dependency org="omero" name="blitz" rev="${omero.version}" changing="true" conf="build->build"/> -->
     <!-- Bio-Formats -->
     <dependency org="${org.bioformats}" name="formats-bsd" rev="${versions.bioformats}" transitive="true">
         <exclude org="org.perf4j"/>

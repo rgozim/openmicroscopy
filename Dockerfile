@@ -84,7 +84,7 @@ RUN apt-get update -y && apt-get install -y vim
 USER omero
 # End Temp
 
-RUN components/tools/travis-build
+# RUN components/tools/travis-build
 
 ########FROM ${RUN_IMAGE} as run
 ########RUN rm -rf /opt/omero/server/OMERO.server
